@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tabsheet"
+version = "0.1.0"
+description = "기타 타브 악보 영상에서 악보 구역을 잘라 PDF/JPG로 모아주는 도구 (MVP 1단계)"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python-headless>=4.8",
+    "numpy>=1.24",
+    "Pillow>=10.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+tabsheet = "tabsheet.cli:main"
+
+[tool.setuptools]
+packages = ["tabsheet"]
+
+[tool.setuptools.package-data]
+tabsheet = ["web/*.html"]
