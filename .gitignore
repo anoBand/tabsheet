@@ -1,0 +1,5 @@
+videos/
+out/
+preview.png
+*.egg-info/
+__pycache__/
