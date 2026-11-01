@@ -3,7 +3,11 @@
   tabsheet gui            # http://127.0.0.1:8765 에서 열림
 
 API
-  POST /api/upload   본문=영상 바이트, 헤더 X-Filename   -> {id, info}
+  POST /api/upload/start   {name, size}                 -> {upload}
+  POST /api/upload/chunk   ?upload=&offset= 본문=조각    -> {received}   (순서대로, 재전송 안전)
+  POST /api/upload/finish  {upload}                     -> {id, name, info}
+  GET  /api/media          (--media-dir 켰을 때)          -> {enabled, files}
+  POST /api/open           {name} (media-dir 안의 상대경로) -> {id, name, info}
   GET  /api/frame    ?id=&t=                              -> JPEG
   POST /api/extract  {id, bbox:[x,y,w,h], params, start, end} -> {job}
   GET  /api/job      ?job=                                -> {status, progress, segments, error}
@@ -36,6 +40,7 @@ ID_RE = re.compile(r"^[0-9a-f]{12}$")
 FILE_RE = re.compile(r"^sheet(_p\d{2})?\.(pdf|jpg)$")
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 MAX_UPLOAD = 8 * 1024**3
+MAX_CHUNK = 64 * 1024**2  # 조각 하나의 서버 쪽 상한 (실제 조각 크기는 브라우저가 정함)
 
 # GUI에서 바꿀 수 있는 파라미터와 타입
 PARAM_TYPES = {
@@ -51,10 +56,12 @@ PARAM_TYPES = {
 
 
 class State:
-    def __init__(self, workdir: Path):
+    def __init__(self, workdir: Path, media_dir: Path | None = None):
         self.workdir = workdir
+        self.media_dir = media_dir.resolve() if media_dir else None  # 서버 폴더 열기 허용 범위
         self.videos: dict[str, dict] = {}
         self.jobs: dict[str, dict] = {}
+        self.uploads: dict[str, dict] = {}
         (workdir / "uploads").mkdir(parents=True, exist_ok=True)
         (workdir / "jobs").mkdir(parents=True, exist_ok=True)
 
@@ -127,6 +134,8 @@ def make_handler(state: State):
                 if url.path in ("/", "/index.html"):
                     html = (WEB_DIR / "index.html").read_bytes()
                     return self._send(200, html, "text/html; charset=utf-8")
+                if url.path == "/api/media":
+                    return self._media_list()
                 if url.path == "/api/frame":
                     return self._frame(q)
                 if url.path == "/api/job":
@@ -144,8 +153,14 @@ def make_handler(state: State):
         def do_POST(self):
             url = urlparse(self.path)
             try:
-                if url.path == "/api/upload":
-                    return self._upload()
+                if url.path == "/api/upload/start":
+                    return self._upload_start()
+                if url.path == "/api/upload/chunk":
+                    return self._upload_chunk({k: v[0] for k, v in parse_qs(url.query).items()})
+                if url.path == "/api/upload/finish":
+                    return self._upload_finish()
+                if url.path == "/api/open":
+                    return self._open_media()
                 if url.path == "/api/extract":
                     return self._extract()
                 if url.path == "/api/build":
@@ -158,39 +173,102 @@ def make_handler(state: State):
             except Exception as e:  # noqa: BLE001
                 self._err(500, str(e))
 
-        # --- 업로드 / 프레임 -----------------------------------------------
-        def _upload(self) -> None:
-            length = int(self.headers.get("Content-Length", 0))
-            if length <= 0 or length > MAX_UPLOAD:
-                return self._err(400, "영상 파일이 비어 있거나 너무 큽니다 (최대 8GB)")
-            name = unquote(self.headers.get("X-Filename", "video.mp4"))
+        # --- 영상 열기: 청크 업로드 / 서버 폴더 ------------------------------
+        def _register_video(self, path: Path, name: str) -> dict:
+            info = core.video_info(path)  # 못 열면 FileNotFoundError
+            if info["width"] <= 0 or info["frames"] <= 0:
+                raise FileNotFoundError("영상을 읽을 수 없습니다. mp4, mov, mkv, webm 형식인지 확인해 주세요.")
+            vid = _new_id()
+            state.videos[vid] = {"path": path, "info": info, "name": name}
+            return {"id": vid, "name": name, "info": info}
+
+        def _get_upload(self, uid: str) -> dict:
+            if not ID_RE.match(uid or "") or uid not in state.uploads:
+                raise ValueError("업로드 세션을 찾을 수 없습니다. 영상을 다시 선택해 주세요.")
+            return state.uploads[uid]
+
+        def _upload_start(self) -> None:
+            data = self._body_json()
+            size = int(data["size"])
+            if size <= 0 or size > MAX_UPLOAD:
+                raise ValueError("영상 파일이 비어 있거나 너무 큽니다 (최대 8GB)")
+            name = Path(str(data.get("name") or "video.mp4")).name
             ext = Path(name).suffix.lower()
             if ext not in VIDEO_EXTS:
                 ext = ".mp4"
-            vid = _new_id()
-            d = state.workdir / "uploads" / vid
+            uid = _new_id()
+            d = state.workdir / "uploads" / uid
             d.mkdir(parents=True)
             path = d / f"video{ext}"
-            remaining = length
-            with open(path, "wb") as f:
-                while remaining > 0:
-                    chunk = self.rfile.read(min(1 << 20, remaining))
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    remaining -= len(chunk)
-            try:
-                if remaining:
-                    raise FileNotFoundError("업로드가 중간에 끊겼습니다. 다시 시도해 주세요.")
-                info = core.video_info(path)
-                if info["width"] <= 0 or info["frames"] <= 0:
-                    raise FileNotFoundError("영상을 읽을 수 없습니다. mp4, mov, mkv, webm 형식인지 확인해 주세요.")
-            except FileNotFoundError as e:
-                shutil.rmtree(d, ignore_errors=True)
-                return self._err(400, str(e))
-            state.videos[vid] = {"path": path, "info": info, "name": Path(name).name}
-            self._json({"id": vid, "name": Path(name).name, "info": info})
+            path.touch()
+            state.uploads[uid] = {"path": path, "name": name, "size": size, "lock": threading.Lock()}
+            self._json({"upload": uid})
 
+        def _upload_chunk(self, q: dict) -> None:
+            """파일 끝에 조각을 이어 붙인다. 재전송(offset이 이미 받은 위치보다 앞)은 무시하고 현재 크기만 알려준다."""
+            n = int(self.headers.get("Content-Length", 0))
+            if n <= 0 or n > MAX_CHUNK:
+                return self._err(413, "조각 크기가 올바르지 않습니다")
+            body = self.rfile.read(n)  # 오류 응답 전에 본문을 먼저 다 읽는다
+            if len(body) != n:
+                raise ValueError("조각이 중간에 끊겼습니다")
+            up = self._get_upload(q.get("upload", ""))
+            offset = int(q.get("offset", -1))
+            with up["lock"]:
+                cur = up["path"].stat().st_size
+                if offset < 0 or offset > cur:
+                    raise ValueError("조각 순서가 맞지 않습니다. 영상을 다시 올려 주세요.")
+                if offset == cur:
+                    if cur + n > up["size"]:
+                        raise ValueError("올리기로 한 크기보다 많은 데이터가 왔습니다")
+                    with open(up["path"], "ab") as f:
+                        f.write(body)
+                    cur += n
+            self._json({"received": cur})
+
+        def _upload_finish(self) -> None:
+            up = self._get_upload(self._body_json().get("upload", ""))
+            uid = next(k for k, v in state.uploads.items() if v is up)
+            with up["lock"]:
+                got = up["path"].stat().st_size
+            if got != up["size"]:
+                raise ValueError(f"업로드가 덜 끝났습니다 ({got}/{up['size']} 바이트). 다시 시도해 주세요.")
+            try:
+                res = self._register_video(up["path"], up["name"])
+            except FileNotFoundError as e:
+                shutil.rmtree(up["path"].parent, ignore_errors=True)
+                state.uploads.pop(uid, None)
+                raise ValueError(str(e)) from e
+            state.uploads.pop(uid, None)
+            self._json(res)
+
+        def _media_list(self) -> None:
+            root = state.media_dir
+            if root is None:
+                return self._json({"enabled": False, "files": []})
+            files = []
+            for p in sorted(root.rglob("*")):
+                if p.suffix.lower() in VIDEO_EXTS and p.is_file() and p.resolve().is_relative_to(root):
+                    files.append({"name": p.relative_to(root).as_posix(), "size": p.stat().st_size})
+                    if len(files) >= 500:
+                        break
+            self._json({"enabled": True, "dir": root.name, "files": files})
+
+        def _open_media(self) -> None:
+            root = state.media_dir
+            if root is None:
+                raise ValueError("서버 폴더 열기가 꺼져 있습니다. tabsheet gui --media-dir 폴더 로 실행해 주세요.")
+            rel = str(self._body_json().get("name", ""))
+            path = (root / rel).resolve()  # '..', 절대 경로, 심볼릭 링크는 resolve 후 root 밖이면 거부
+            if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() not in VIDEO_EXTS:
+                raise ValueError("이 폴더에서 영상을 찾을 수 없습니다")
+            try:
+                res = self._register_video(path, path.name)
+            except FileNotFoundError as e:
+                raise ValueError(str(e)) from e
+            self._json(res)
+
+        # --- 프레임 ---------------------------------------------------------
         def _video(self, vid: str) -> dict:
             if not ID_RE.match(vid or "") or vid not in state.videos:
                 raise KeyError("영상을 찾을 수 없습니다. 다시 열어 주세요.")
@@ -317,11 +395,19 @@ def make_handler(state: State):
     return Handler
 
 
-def serve(host: str = "127.0.0.1", port: int = 8765, workdir: str | Path | None = None, open_browser: bool = True) -> int:
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    workdir: str | Path | None = None,
+    open_browser: bool = True,
+    media_dir: str | Path | None = None,
+) -> int:
+    if media_dir is not None and not Path(media_dir).is_dir():
+        raise ValueError(f"--media-dir 폴더가 없습니다: {media_dir}")
     cleanup = workdir is None
     work = Path(tempfile.mkdtemp(prefix="tabsheet_")) if cleanup else Path(workdir)
     work.mkdir(parents=True, exist_ok=True)
-    state = State(work)
+    state = State(work, Path(media_dir) if media_dir else None)
 
     httpd = None
     for p in range(port, port + 20):  # 사용 중이면 다음 포트
@@ -336,6 +422,8 @@ def serve(host: str = "127.0.0.1", port: int = 8765, workdir: str | Path | None 
 
     url = f"http://{host}:{port}"
     print(f"tabsheet GUI: {url}   (종료: Ctrl+C)")
+    if state.media_dir:
+        print(f"서버 폴더 열기: {state.media_dir}")
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:

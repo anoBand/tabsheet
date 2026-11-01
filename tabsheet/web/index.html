@@ -89,6 +89,9 @@
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
   .meta { color: var(--ink-soft); font-size: 14px; overflow-wrap: anywhere; margin: 8px 0 0; }
 
+  .media { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
+  .media .line { display: flex; gap: 8px; align-items: center; }
+  .media select { flex: 1; min-width: 0; }
   .bar { height: 6px; background: var(--paper); border-radius: 3px; overflow: hidden; margin-top: 10px; }
   .bar > i { display: block; height: 100%; width: 0; background: var(--seafoam); transition: width .25s; }
   .status { min-height: 1.4em; margin: 8px 0 0; font-size: 14px; color: var(--ink-soft); }
@@ -137,6 +140,14 @@
       <h2><span class="n">1</span>영상 열기</h2>
       <button class="btn ghost" id="pick" type="button">영상 파일 선택</button>
       <input id="file" type="file" accept="video/*,.mkv" hidden>
+      <div class="media" id="mediaBox" hidden>
+        <p class="muted" style="margin-bottom:8px">또는 서버 폴더에 있는 영상 열기 (업로드 없이)</p>
+        <div class="line">
+          <select id="mediaSel" aria-label="서버 폴더의 영상"></select>
+          <button class="btn small" id="mediaOpen" type="button">열기</button>
+          <button class="btn ghost small" id="mediaRefresh" type="button">새로고침</button>
+        </div>
+      </div>
       <p class="meta" id="videoMeta">아직 열린 영상이 없습니다.</p>
       <div class="bar" id="upBar" hidden><i></i></div>
     </section>
@@ -216,31 +227,98 @@ $("pick").addEventListener("click", () => fileInput.click());
 drop.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) upload(f); });
 fileInput.addEventListener("change", () => { if (fileInput.files[0]) upload(fileInput.files[0]); });
 
-function upload(file) {
-  const bar = $("upBar");
-  bar.hidden = false; bar.firstElementChild.style.width = "0";
-  $("videoMeta").textContent = `${file.name} 올리는 중…`;
-  const xhr = new XMLHttpRequest();
-  xhr.open("POST", "/api/upload");
-  xhr.setRequestHeader("X-Filename", encodeURIComponent(file.name));
-  xhr.upload.onprogress = (e) => { if (e.lengthComputable) bar.firstElementChild.style.width = (e.loaded / e.total * 100) + "%"; };
-  xhr.onerror = () => { $("videoMeta").textContent = "서버에 연결하지 못했습니다. tabsheet gui가 실행 중인지 확인해 주세요."; bar.hidden = true; };
-  xhr.onload = () => {
-    bar.hidden = true;
-    let res = {}; try { res = JSON.parse(xhr.responseText); } catch (_) {}
-    if (xhr.status !== 200) { $("videoMeta").textContent = res.error || "영상을 올리지 못했습니다."; return; }
-    S.vid = res.id; S.info = res.info; S.bbox = null; S.job = null;
-    const i = res.info;
-    $("videoMeta").textContent = `${res.name} — ${i.width}×${i.height}, ${fmtTime(i.duration)}`;
-    $("time").max = Math.max(i.duration - 0.1, 0);
-    $("time").value = Math.min(i.duration * 0.25, i.duration);
-    drop.hidden = true; $("frameWrap").hidden = false; $("scrub").hidden = false; $("stageHint").hidden = false;
-    $("s2").classList.remove("off"); $("s3").classList.remove("off");
-    $("results").hidden = true; setStatus($("status"), "");
-    loadFrame(); syncInputs(); updateRunState();
-  };
-  xhr.send(file);
+const JSON_H = { "Content-Type": "application/json" };
+const CHUNK_START = 4 * 1024 * 1024, CHUNK_MIN = 256 * 1024;
+const fmtSize = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : Math.max(1, Math.round(b / 1e6)) + " MB");
+
+async function api(path, opts) {
+  let r;
+  try { r = await fetch(path, opts); }
+  catch (_) { throw new Error("서버에 연결하지 못했습니다. tabsheet gui가 실행 중인지 확인해 주세요."); }
+  let body = null;
+  try { body = await r.json(); } catch (_) {}
+  if (!r.ok) {
+    const e = new Error((body && body.error) || `서버 응답 오류 (HTTP ${r.status})`);
+    e.status = r.status;
+    throw e;
+  }
+  return body;
 }
+
+// 큰 파일을 조각으로 나눠 올린다. 프록시가 413을 주면 조각을 절반으로 줄여 같은 위치부터 다시 보낸다.
+async function upload(file) {
+  if (S.uploading) return;
+  S.uploading = true;
+  const bar = $("upBar"), fill = bar.firstElementChild;
+  bar.hidden = false; fill.style.width = "0";
+  $("videoMeta").textContent = `${file.name} 올리는 중…`;
+  try {
+    const { upload: uid } = await api("/api/upload/start", {
+      method: "POST", headers: JSON_H, body: JSON.stringify({ name: file.name, size: file.size }),
+    });
+    let offset = 0, chunk = CHUNK_START, fails = 0;
+    while (offset < file.size) {
+      try {
+        const r = await api(`/api/upload/chunk?upload=${uid}&offset=${offset}`, {
+          method: "POST", body: file.slice(offset, Math.min(offset + chunk, file.size)),
+        });
+        if (r.received <= offset) throw new Error("서버가 업로드 진행을 확인하지 못했습니다.");
+        offset = r.received; fails = 0;
+        const pct = Math.round(offset / file.size * 100);
+        fill.style.width = pct + "%";
+        $("videoMeta").textContent = `${file.name} 올리는 중… ${pct}%`;
+      } catch (e) {
+        if (e.status === 413) {
+          if (chunk <= CHUNK_MIN) throw new Error("서버(또는 프록시)가 업로드 크기를 거부했습니다 (HTTP 413). 서버 폴더에서 열기를 사용해 주세요.");
+          chunk = Math.max(CHUNK_MIN, Math.floor(chunk / 2));
+          continue;
+        }
+        const retryable = !e.status || e.status >= 500 || e.status === 408 || e.status === 429;
+        if (!retryable || ++fails > 4) throw e;
+        await new Promise((ok) => setTimeout(ok, 800 * fails));
+      }
+    }
+    openVideo(await api("/api/upload/finish", { method: "POST", headers: JSON_H, body: JSON.stringify({ upload: uid }) }));
+  } catch (e) {
+    $("videoMeta").textContent = e.message || "영상을 올리지 못했습니다.";
+  } finally {
+    S.uploading = false; bar.hidden = true; fileInput.value = "";
+  }
+}
+
+// 업로드/서버 폴더 어느 쪽으로 열든 여기로 합류
+function openVideo(res) {
+  S.vid = res.id; S.info = res.info; S.bbox = null; S.job = null;
+  const i = res.info;
+  $("videoMeta").textContent = `${res.name} — ${i.width}×${i.height}, ${fmtTime(i.duration)}`;
+  $("time").max = Math.max(i.duration - 0.1, 0);
+  $("time").value = Math.min(i.duration * 0.25, i.duration);
+  drop.hidden = true; $("frameWrap").hidden = false; $("scrub").hidden = false; $("stageHint").hidden = false;
+  $("s2").classList.remove("off"); $("s3").classList.remove("off");
+  $("results").hidden = true; setStatus($("status"), "");
+  loadFrame(); syncInputs(); updateRunState();
+}
+
+/* ---------- 서버 폴더에서 열기 (tabsheet gui --media-dir 일 때만 보임) ---------- */
+async function loadMedia() {
+  try {
+    const m = await api("/api/media");
+    if (!m.enabled) return;
+    $("mediaBox").hidden = false;
+    const sel = $("mediaSel"); sel.textContent = "";
+    if (!m.files.length) { sel.add(new Option(`${m.dir} 폴더에 영상이 없습니다`, "")); $("mediaOpen").disabled = true; return; }
+    $("mediaOpen").disabled = false;
+    for (const f of m.files) sel.add(new Option(`${f.name} (${fmtSize(f.size)})`, f.name));
+  } catch (_) { /* 목록을 못 읽어도 업로드는 그대로 쓸 수 있다 */ }
+}
+$("mediaRefresh").addEventListener("click", loadMedia);
+$("mediaOpen").addEventListener("click", async () => {
+  const name = $("mediaSel").value; if (!name) return;
+  $("videoMeta").textContent = `${name} 여는 중…`;
+  try { openVideo(await api("/api/open", { method: "POST", headers: JSON_H, body: JSON.stringify({ name }) })); }
+  catch (e) { $("videoMeta").textContent = e.message; }
+});
+loadMedia();
 
 /* ---------- 프레임 / 시간 이동 ---------- */
 function loadFrame() {
