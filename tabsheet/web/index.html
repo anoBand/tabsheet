@@ -178,7 +178,7 @@
           <label class="f">같은 악보로 볼 기준<input id="pStable" type="number" min="0" max="1" step="0.01" value="0.10"></label>
           <label class="f">느린 페이드 기준<input id="pAnchor" type="number" min="0" max="1" step="0.01" value="0.20"></label>
           <label class="f">중복 병합 기준<input id="pDedupe" type="number" min="0" max="1" step="0.01" value="0.05"></label>
-          <label class="f">흐린 조각 제거 비율<input id="pContrast" type="number" min="0" max="1" step="0.05" value="0.8"></label>
+          <label class="f">페이드 잔상 판정(0이면 끔)<input id="pFade" type="number" min="0" max="2" step="0.05" value="0.75"></label>
         </div>
         <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input id="pMedian" type="checkbox" checked> 커서·하이라이트 지우기</label>
       </details>
@@ -397,7 +397,7 @@ function paramsFromForm() {
   const n = (id) => { const v = parseFloat($(id).value); return Number.isNaN(v) ? undefined : v; };
   return {
     interval: n("pInterval"), min_run: n("pMinRun"), stable_thr: n("pStable"), anchor_thr: n("pAnchor"),
-    dedupe_thr: n("pDedupe"), contrast_ratio: n("pContrast"), median: $("pMedian").checked,
+    dedupe_thr: n("pDedupe"), fade_ratio: n("pFade"), median: $("pMedian").checked,
   };
 }
 $("run").addEventListener("click", async () => {
@@ -427,22 +427,25 @@ async function pollJob() {
   clearInterval(S.poll);
   $("runBar").hidden = true; $("run").disabled = false;
   if (j.status === "error") return fail(j.error);
-  setStatus($("status"), `악보 조각 ${j.segments.length}개를 찾았습니다.`);
+  const kept = j.segments.filter((s) => !s.faded).length, skipped = j.segments.length - kept;
+  setStatus($("status"), `악보 조각 ${kept}개를 찾았습니다.` + (skipped ? ` 페이드 잔상으로 보여 ${skipped}개는 제외해 두었습니다.` : ""));
   showResults(j.segments);
 }
 
 /* ---------- 4. 결과 ---------- */
 function showResults(segs) {
-  $("resTitle").textContent = `악보 조각 ${segs.length}개`;
+  const skipped = segs.filter((s) => s.faded).length;
+  $("resTitle").textContent = `악보 조각 ${segs.length - skipped}개` + (skipped ? ` (제외 ${skipped}개)` : "");
   const box = $("pieces"); box.textContent = "";
   for (const s of segs) {
     const fig = document.createElement("figure"); fig.className = "piece";
     const img = document.createElement("img"); img.src = s.url; img.alt = `악보 조각 ${s.index}`; img.loading = "lazy";
     const cap = document.createElement("figcaption");
     const lab = document.createElement("label"); lab.style.cssText = "display:flex;gap:8px;align-items:center;cursor:pointer";
-    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = true; cb.dataset.i = s.index;
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !s.faded; cb.dataset.i = s.index;
+    if (s.faded) fig.classList.add("skip");
     cb.addEventListener("change", () => fig.classList.toggle("skip", !cb.checked));
-    lab.append(cb, document.createTextNode(`조각 ${s.index}`));
+    lab.append(cb, document.createTextNode(`조각 ${s.index}` + (s.faded ? " — 페이드 전환 중간 화면으로 보여 제외했습니다. 악보가 맞다면 체크하세요" : "")));
     const tm = document.createElement("span"); tm.className = "time"; tm.textContent = `${fmtTime(s.t_start)} – ${fmtTime(s.t_end)}`;
     cap.append(lab, tm); fig.append(img, cap); box.append(fig);
   }
