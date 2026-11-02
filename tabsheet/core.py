@@ -6,7 +6,7 @@
   3. 연속 샘플 간 '변화 점수'로 안정 구간(= 한 악보가 화면에 정지해 있는 구간)을 찾음
      - 페이드 전환/움직이는 커서/영역 밖 노이즈에 견디도록 설계
   4. 구간마다 가장 선명한 프레임을 대표 이미지로 선택
-  5. 직전 악보와 같은 것은 병합, 대비가 낮은(페이드 중간) 후보는 제거
+  5. 직전 악보와 같은 것은 병합, 앞뒤 페이지의 혼합(크로스페이드 중간)으로 설명되는 짧은 후보는 제외 표시
   6. 대표 이미지들을 페이지에 쌓아 PDF 또는 JPG로 출력
 """
 
@@ -34,7 +34,8 @@ class Params:
     anchor_thr: float = 0.20     # 구간 첫 샘플과의 변화 점수 한계 (느린 페이드 방지)
     min_run: int = 2             # 안정 구간으로 인정할 최소 연속 샘플 수
     dedupe_thr: float = 0.05     # 직전에 채택한 악보와 이 이하면 같은 악보로 병합
-    contrast_ratio: float = 0.8  # 대비가 중앙값 x 이 비율보다 낮으면 페이드 잔상으로 제거
+    fade_ratio: float = 0.75     # 앞뒤 페이지 혼합으로 설명되는 정도가 이 값보다 작으면 페이드 잔상 (0이면 판정 끔)
+    fade_max_sec: float = 2.0    # 이 시간보다 오래 정지한 구간은 페이드일 수 없으므로 판정하지 않음
     median: bool = True          # 구간 내 프레임 픽셀별 중앙값으로 커서 제거 (False면 가장 선명한 1프레임)
     small_width: int = 320       # 비교용 축소 폭
 
@@ -45,7 +46,7 @@ class Segment:
     t_start: float
     t_end: float
     image: np.ndarray  # BGR 크롭 이미지
-    contrast: float
+    faded: bool = False  # 페이드 전환 중간 프레임으로 보여 제외 대상으로 표시됨
 
 
 # --------------------------------------------------------------------------- #
@@ -150,10 +151,21 @@ def change_score(a: np.ndarray, b: np.ndarray, pix_thr: int = 25) -> float:
     return float((changed.sum(axis=0) >= min_rows).mean())
 
 
-def _contrast(crop: np.ndarray) -> float:
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    lo, hi = np.percentile(gray, [5, 95])
-    return float(hi - lo)
+def _blend_ratio(prev: np.ndarray, cur: np.ndarray, nxt: np.ndarray) -> float:
+    """cur(회색조)가 앞뒤 페이지의 알파 혼합으로 얼마나 잘 설명되는지.
+
+    작을수록(0에 가까울수록) 크로스페이드 중간 프레임, 1 근처면 독립된 페이지.
+    악보 밀도와 무관하다: 성긴 페이지든 빽빽한 페이지든 '이웃의 혼합'은 아니다.
+    앞뒤가 사실상 같으면 섞임을 구분할 수 없으므로 1.0(판정 불가 = 페이지로 취급).
+    """
+    P, X, N = (a.astype(np.float32) for a in (prev, cur, nxt))
+    d = P - N
+    if float(np.abs(d).mean()) < 2.0:
+        return 1.0
+    alpha = float(np.clip(((X - N) * d).sum() / (d * d).sum(), 0.0, 1.0))
+    err_blend = float(np.abs(X - (alpha * P + (1.0 - alpha) * N)).mean())
+    err_min = min(float(np.abs(X - P).mean()), float(np.abs(X - N).mean()))
+    return err_blend / max(err_min, 1e-6)
 
 
 def _sharpness(crop: np.ndarray) -> float:
@@ -209,8 +221,13 @@ def extract_segments(
     end: float | None = None,
     debug_rows: list | None = None,
     progress: Callable[[float], None] | None = None,
+    keep_faded: bool = False,
 ) -> list[Segment]:
-    """영상에서 bbox 영역의 '안정된 악보 조각'들을 시간순으로 반환."""
+    """영상에서 bbox 영역의 '안정된 악보 조각'들을 시간순으로 반환.
+
+    페이드 전환 중간 프레임으로 보이는 조각은 기본적으로 뺀다. keep_faded=True면 faded=True로 표시해 함께 돌려주므로
+    호출하는 쪽이 사용자에게 보여 주고 선택하게 할 수 있다 (조용히 사라지는 조각이 없도록).
+    """
     p = params or Params()
     x, y, w, h = bbox
     info = video_info(video)
@@ -263,13 +280,17 @@ def extract_segments(
     if not merged:
         return []
 
-    # 페이드 중간에 걸린 흐린 후보 제거 (대비가 중앙값에 비해 많이 낮은 것)
-    contrasts = [_contrast(m[2]) for m in merged]
-    floor = p.contrast_ratio * float(np.median(contrasts))
+    # 페이드 잔상 판정: '짧게' 정지했고, 앞뒤 페이지의 혼합으로 설명되는 후보만.
+    # 길게 정지한 구간(예: 성긴 악보가 오래 반복되는 페이지)은 페이드일 수 없으므로 절대 건드리지 않는다.
     segments: list[Segment] = []
-    for (t0, t1, img, _), c in zip(merged, contrasts):
-        if c >= floor:
-            segments.append(Segment(len(segments) + 1, t0, t1, img, c))
+    for i, (t0, t1, img, small) in enumerate(merged):
+        faded = False
+        short = (t1 - t0 + p.interval) <= p.fade_max_sec
+        if p.fade_ratio > 0 and short and 0 < i < len(merged) - 1:
+            faded = _blend_ratio(merged[i - 1][3], small, merged[i + 1][3]) < p.fade_ratio
+        if faded and not keep_faded:
+            continue
+        segments.append(Segment(len(segments) + 1, t0, t1, img, faded))
     return segments
 
 
@@ -281,7 +302,7 @@ def save_segments(segments: list[Segment], out_dir: str | Path) -> list[Path]:
     out.mkdir(parents=True, exist_ok=True)
     paths = []
     for s in segments:
-        p = out / f"seg_{s.index:03d}_t{s.t_start:07.2f}.png"
+        p = out / f"seg_{s.index:03d}_t{s.t_start:07.2f}{'_faded' if s.faded else ''}.png"
         cv2.imwrite(str(p), s.image)
         paths.append(p)
     return paths

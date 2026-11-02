@@ -47,6 +47,11 @@ def test_full_pipeline(tmp_path):
         red_ratio = float(((r > 180) & (g < 90) & (b < 90)).mean())
         assert red_ratio < 0.0005, f"조각 {s.index}에 커서 잔상 (red={red_ratio:.5f})"
 
+    # 2-2) 3초 슬로우 페이드의 중간 화면은 기본값에서 빠지고, keep_faded=True면 표시된 채로 돌려준다
+    with_faded = extract_segments(video, meta["bbox"], Params(), keep_faded=True)
+    assert len(with_faded) == len(segments) + 1 and sum(s.faded for s in with_faded) == 1
+    assert not any(s.faded for s in segments)
+
     # 3) 시간 순서 단조 증가
     starts = [s.t_start for s in segments]
     assert starts == sorted(starts)

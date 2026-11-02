@@ -55,7 +55,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         anchor_thr=args.anchor_thr,
         min_run=args.min_run,
         dedupe_thr=args.dedupe_thr,
-        contrast_ratio=args.contrast_ratio,
+        fade_ratio=args.fade_ratio,
         median=not args.no_median,
     )
     out_dir = Path(args.output)
@@ -64,16 +64,18 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     def progress(frac: float) -> None:
         print(f"\r처리 중 {frac * 100:5.1f}%", end="", file=sys.stderr, flush=True)
 
-    segments = core.extract_segments(
-        args.video, bbox, params, args.start, args.end, debug_rows, progress
+    found = core.extract_segments(
+        args.video, bbox, params, args.start, args.end, debug_rows, progress, keep_faded=True
     )
+    segments = [s for s in found if not s.faded]
+    faded = [s for s in found if s.faded]
     print(file=sys.stderr)
 
     if not segments:
         print("악보 조각을 찾지 못했습니다. bbox를 확인하거나 --stable-thr 값을 올려 보세요.")
         return 1
 
-    seg_paths = core.save_segments(segments, out_dir / "segments")
+    core.save_segments(found, out_dir / "segments")
     sheet_paths = core.build_sheet([s.image for s in segments], out_dir / "sheet", args.format)
 
     if debug_rows is not None:
@@ -85,8 +87,11 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         print(f"디버그 점수: {dbg}")
 
     print(f"악보 조각 {len(segments)}개 -> {out_dir / 'segments'}")
-    for s in segments:
-        print(f"  #{s.index:03d}  {s.t_start:7.1f}s ~ {s.t_end:7.1f}s  대비 {s.contrast:.0f}")
+    for s in found:
+        note = "  [페이드 잔상으로 보여 제외]" if s.faded else ""
+        print(f"  #{s.index:03d}  {s.t_start:7.1f}s ~ {s.t_end:7.1f}s{note}")
+    if faded:
+        print(f"제외한 조각 {len(faded)}개는 segments 폴더에 _faded 이름으로 남겨 두었습니다. 페이지가 맞다면 --fade-ratio 0 으로 다시 실행하세요.")
     for pth in sheet_paths:
         print(f"악보 파일: {pth}")
     return 0
@@ -127,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--anchor-thr", type=float, default=0.20)
     p.add_argument("--min-run", type=int, default=2)
     p.add_argument("--dedupe-thr", type=float, default=0.05)
-    p.add_argument("--contrast-ratio", type=float, default=0.8)
+    p.add_argument("--fade-ratio", type=float, default=0.75, help="페이드 잔상 판정 기준 (0이면 판정 끔)")
     p.add_argument("--no-median", action="store_true", help="커서 제거(중앙값 합성) 끄고 가장 선명한 1프레임 사용")
     p.add_argument("--debug", action="store_true", help="샘플별 변화 점수 CSV 저장 (임계값 튜닝용)")
     p.set_defaults(fn=_cmd_extract)

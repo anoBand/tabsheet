@@ -50,7 +50,7 @@ PARAM_TYPES = {
     "anchor_thr": float,
     "min_run": int,
     "dedupe_thr": float,
-    "contrast_ratio": float,
+    "fade_ratio": float,
     "median": bool,
 }
 
@@ -78,7 +78,7 @@ def _run_job(state: State, job_id: str) -> None:
             job["progress"] = round(frac, 3)
 
         segs = core.extract_segments(
-            job["video_path"], job["bbox"], job["params"], job["start"], job["end"], None, progress
+            job["video_path"], job["bbox"], job["params"], job["start"], job["end"], None, progress, keep_faded=True
         )
         if not segs:
             raise ValueError(
@@ -86,7 +86,7 @@ def _run_job(state: State, job_id: str) -> None:
             )
         paths = core.save_segments(segs, job["dir"] / "segments")
         job["segments"] = [
-            {"index": s.index, "t_start": round(s.t_start, 2), "t_end": round(s.t_end, 2), "file": p.name}
+            {"index": s.index, "t_start": round(s.t_start, 2), "t_end": round(s.t_end, 2), "file": p.name, "faded": s.faded}
             for s, p in zip(segs, paths)
         ]
         job["progress"] = 1.0
@@ -334,6 +334,7 @@ def make_handler(state: State):
                     "index": s["index"],
                     "t_start": s["t_start"],
                     "t_end": s["t_end"],
+                    "faded": s["faded"],
                     "url": f"/api/seg?job={job_id}&i={s['index']}",
                 }
                 for s in job["segments"]
