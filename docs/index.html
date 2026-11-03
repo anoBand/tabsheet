@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tabsheet (브라우저 버전)</title>
+<style>
+  :root {
+    --ink: #18213b;
+    --ink-soft: #55607a;
+    --paper: #eef1f5;
+    --sheet: #ffffff;
+    --rule: #d3dae4;
+    --seafoam: #2fa88f;
+    --seafoam-dark: #1d7a68;
+    --hilite: rgba(246, 226, 122, .26);
+    --cursor: #3f9bd6;
+    --danger: #b3261e;
+    --radius: 6px;
+    --font: "Pretendard Variable", Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--paper); }
+  body {
+    margin: 0; color: var(--ink); font: 15px/1.6 var(--font);
+    font-variant-numeric: tabular-nums; background: var(--paper);
+  }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--seafoam); outline-offset: 2px; }
+
+  /* 헤더: 타브 악보의 6줄 오선 위에 이름이 놓인 모양 */
+  header {
+    height: 64px; border-bottom: 1px solid var(--rule);
+    background: repeating-linear-gradient(to bottom, transparent 0 9px, var(--rule) 9px 10px);
+    display: flex; align-items: center; padding: 0 24px;
+  }
+  header .mark { background: var(--paper); padding: 4px 14px 4px 0; display: flex; align-items: baseline; gap: 14px; }
+  header h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+  header p { margin: 0; color: var(--ink-soft); font-size: 14px; }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 24px; display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+  @media (max-width: 960px) { main { grid-template-columns: 1fr; padding: 16px; } header { padding: 0 16px; } header p { display: none; } }
+
+  /* 스테이지 */
+  .stage { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; }
+  .drop {
+    min-height: 360px; display: grid; place-items: center; text-align: center; padding: 32px;
+    border: 2px dashed var(--rule); margin: 16px; border-radius: var(--radius); cursor: pointer; color: var(--ink-soft);
+  }
+  .drop:hover, .drop.over { border-color: var(--seafoam); background: #f3fbf9; }
+  .drop strong { display: block; color: var(--ink); font-size: 19px; margin-bottom: 6px; letter-spacing: -.01em; }
+  .frame-wrap { position: relative; line-height: 0; cursor: crosshair; touch-action: none; user-select: none; background: #111; }
+  .frame-wrap img { width: 100%; height: auto; display: block; -webkit-user-drag: none; }
+  /* 선택 영역: 영상 속 마디 하이라이트(노랑)와 왼쪽 커서선을 닮게 */
+  .sel {
+    position: absolute; background: var(--hilite); border: 2px solid var(--ink); pointer-events: none;
+    box-shadow: 0 0 0 9999px rgba(10, 16, 32, .38);
+  }
+  .sel::before { content: ""; position: absolute; left: 0; top: -2px; bottom: -2px; width: 2px; background: var(--cursor); }
+  .scrub { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-top: 1px solid var(--rule); }
+  .scrub input[type=range] { flex: 1; accent-color: var(--seafoam-dark); }
+  .scrub output { min-width: 96px; text-align: right; color: var(--ink-soft); }
+  .hint { margin: 0; padding: 0 16px 14px; color: var(--ink-soft); font-size: 14px; }
+
+  /* 패널 */
+  aside { display: grid; gap: 16px; }
+  .step { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 16px; }
+  .step h2 { margin: 0 0 10px; font-size: 16px; font-weight: 700; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 10px; }
+  .step h2 .n { color: var(--seafoam-dark); font-weight: 800; }
+  .step.off { opacity: .55; }
+  .muted { color: var(--ink-soft); font-size: 14px; margin: 0 0 10px; }
+  .row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  label.f { display: grid; gap: 4px; font-size: 13px; color: var(--ink-soft); }
+  input[type=number], select {
+    width: 100%; padding: 7px 8px; border: 1px solid var(--rule); border-radius: 4px; background: #fff; color: var(--ink);
+  }
+  .btn {
+    appearance: none; border: 1px solid var(--ink); background: var(--ink); color: #fff; padding: 10px 16px;
+    border-radius: var(--radius); font-weight: 600; cursor: pointer; width: 100%;
+  }
+  .btn:hover:not(:disabled) { background: #263259; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.ghost { background: #fff; color: var(--ink); }
+  .btn.ghost:hover:not(:disabled) { background: var(--paper); }
+  .btn.small { width: auto; padding: 6px 10px; font-size: 13px; font-weight: 500; }
+  .stack { display: grid; gap: 10px; }
+  details { margin: 10px 0; }
+  summary { cursor: pointer; color: var(--ink-soft); font-size: 14px; padding: 4px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .meta { color: var(--ink-soft); font-size: 14px; overflow-wrap: anywhere; margin: 8px 0 0; }
+
+  .media { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
+  .media .line { display: flex; gap: 8px; align-items: center; }
+  .media select { flex: 1; min-width: 0; }
+  .bar { height: 6px; background: var(--paper); border-radius: 3px; overflow: hidden; margin-top: 10px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--seafoam); transition: width .25s; }
+  .status { min-height: 1.4em; margin: 8px 0 0; font-size: 14px; color: var(--ink-soft); }
+  .status.error { color: var(--danger); }
+
+  /* 결과 */
+  .results { grid-column: 1 / -1; background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 16px; }
+  .results header { all: unset; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .results h2 { margin: 0; font-size: 18px; letter-spacing: -.01em; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pieces { display: grid; gap: 12px; }
+  .piece { margin: 0; border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; background: #fafbfc; }
+  .piece img { display: block; width: 100%; height: auto; background: #fff; }
+  .piece.skip img { opacity: .25; }
+  .piece figcaption { padding: 8px 12px; display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--rule); font-size: 14px; }
+  .piece input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--seafoam-dark); }
+  .piece .time { margin-left: auto; color: var(--ink-soft); }
+  .outputs { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--rule); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .outputs .btn { width: auto; }
+  .outputs a { color: var(--seafoam-dark); font-weight: 600; }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+<style>
+  .vwrap { position: relative; line-height: 0; cursor: crosshair; touch-action: none; user-select: none; background: #111; }
+  .vwrap video { width: 100%; height: auto; display: block; }
+  .privacy { margin: 0; padding: 10px 16px; font-size: 13px; color: var(--ink-soft); border-top: 1px solid var(--rule); background: #f7faf9; }
+</style>
+</head>
+<body>
+<header>
+  <div class="mark"><h1>tabsheet</h1><p>브라우저 버전 · 영상은 내 컴퓨터를 떠나지 않습니다</p></div>
+</header>
+
+<main>
+  <section class="stage" aria-label="영상 미리보기">
+    <div id="drop" class="drop" tabindex="0" role="button" aria-label="영상 파일 선택">
+      <div><strong>영상 파일을 여기에 놓으세요</strong>또는 클릭해서 선택 (mp4/H.264, webm 권장)</div>
+    </div>
+    <div id="vwrap" class="vwrap" hidden><video id="video" muted playsinline preload="auto"></video><div id="sel" class="sel" hidden></div></div>
+    <div id="scrub" class="scrub" hidden>
+      <label for="time">화면 위치</label>
+      <input id="time" type="range" min="0" max="0" step="0.1" value="0">
+      <output id="timeOut" for="time">0:00</output>
+    </div>
+    <p id="stageHint" class="hint" hidden>악보가 보이는 시점으로 옮긴 뒤, 화면에서 악보 영역을 드래그하세요. 다시 드래그하면 영역이 바뀝니다.</p>
+    <p class="privacy">파일은 업로드되지 않고 이 브라우저 안에서만 처리됩니다. 처리 중에는 이 탭을 닫거나 숨기지 마세요.</p>
+  </section>
+
+  <aside>
+    <section class="step" id="s1">
+      <h2><span class="n">1</span>영상 열기</h2>
+      <button class="btn ghost" id="pick" type="button">영상 파일 선택</button>
+      <input id="file" type="file" accept="video/*,.mkv" hidden>
+      <p class="meta" id="info"></p>
+      <p class="status" id="openStatus" role="status"></p>
+    </section>
+
+    <section class="step off" id="s2">
+      <h2><span class="n">2</span>악보 영역</h2>
+      <p class="muted" id="bboxText">화면에서 드래그해 지정하세요.</p>
+      <details>
+        <summary>고급 설정</summary>
+        <div class="grid2">
+          <label class="f">샘플 간격(초)<input id="interval" type="number" step="0.05" min="0.1" value="0.5"></label>
+          <label class="f">페이드 판정(0=끔)<input id="fadeRatio" type="number" step="0.05" min="0" max="1" value="0.75"></label>
+          <label class="f">시작(초)<input id="start" type="number" step="0.5" min="0" value="0"></label>
+          <label class="f">끝(초, 0=끝까지)<input id="end" type="number" step="0.5" min="0" value="0"></label>
+        </div>
+      </details>
+    </section>
+
+    <section class="step off" id="s3">
+      <h2><span class="n">3</span>악보 추출</h2>
+      <div class="stack">
+        <button class="btn" id="run" type="button" disabled>악보 추출</button>
+        <button class="btn ghost" id="cancel" type="button" hidden>중단</button>
+      </div>
+      <div class="bar" aria-hidden="true"><i id="bar"></i></div>
+      <p class="status" id="runStatus" role="status"></p>
+    </section>
+  </aside>
+
+  <section class="results" id="results" hidden>
+    <header>
+      <h2 id="resTitle">추출된 악보 조각</h2>
+      <div class="toolbar">
+        <button class="btn ghost small" id="allOn" type="button">모두 선택</button>
+        <button class="btn ghost small" id="allOff" type="button">모두 해제</button>
+      </div>
+    </header>
+    <div class="pieces" id="pieces"></div>
+    <div class="outputs">
+      <button class="btn" id="mkPdf" type="button">PDF 만들기</button>
+      <button class="btn ghost" id="mkJpg" type="button">JPG 만들기</button>
+      <span class="status" id="outStatus" role="status"></span>
+    </div>
+  </section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
