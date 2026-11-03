@@ -91,3 +91,22 @@ MCP 서버나 웹 API는 `core.py`의 함수를 그대로 감싸면 됩니다 (`
 - 악보 한 줄이 다음 줄과 음표가 거의 같은(변화 열 비율 < 임계값) 경우 같은 악보로 합쳐질 수 있음
 - 화면이 겹치게 스크롤되는 영상(페이지마다 앞뒤 마디가 겹침)에서는 조각 사이에 같은 마디가 중복됨. 중복 마디를 이어 붙여 제거하는 기능은 아직 없음
 - 유튜브 URL 미지원
+
+## 브라우저 버전 (서버·설치 없이)
+
+`docs/` 폴더가 정적 사이트입니다. 영상은 업로드되지 않고 브라우저의 `<video>`로 직접 디코딩해 처리합니다.
+
+```bash
+python -m http.server 8000 --directory docs     # http://127.0.0.1:8000 (GitHub Pages로 docs/ 를 배포해도 됨)
+```
+
+- `docs/core.js` : 파이썬 알고리즘의 JS 이식 (변화 점수, 구간 추적, 중앙값 합성, 페이드 판정)
+- `docs/pdf.js`  : A4 배치 + 외부 라이브러리 없는 PDF 작성기
+- `docs/app.js`, `docs/index.html` : 화면
+- 한계: H.264/VP9 외 코덱(HEVC 등)은 재생 불가, 파이썬 버전보다 느림(60초 영상 약 1분), 처리 중 탭을 숨기면 느려질 수 있음
+
+테스트:
+```bash
+python tests/browser/make_parity_fixture.py VIDEO X,Y,W,H OUT && node tests/browser/parity.mjs OUT   # 파이썬↔JS 수치 일치
+python tests/browser/e2e.py cases.json OUTDIR     # 실제 Chrome에서 파이썬 결과와 비교 (Playwright 필요)
+```
