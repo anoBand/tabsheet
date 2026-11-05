@@ -146,6 +146,14 @@
       <h2><span class="n">1</span>영상 열기</h2>
       <button class="btn ghost" id="pick" type="button">영상 파일 선택</button>
       <input id="file" type="file" accept="video/*,.mkv" hidden>
+      <div class="line" style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn ghost small" id="serverBtn" type="button">서버 videos/ 폴더</button>
+        <button class="btn ghost small" id="folderBtn" type="button">내 컴퓨터 폴더 선택</button>
+        <input id="dirInput" type="file" webkitdirectory hidden>
+      </div>
+      <div class="media" id="mediaBox" hidden>
+        <div class="line"><select id="mediaSel" aria-label="폴더의 영상"></select><button class="btn small" id="mediaOpen" type="button">열기</button></div>
+      </div>
       <p class="meta" id="info"></p>
       <p class="status" id="openStatus" role="status"></p>
     </section>

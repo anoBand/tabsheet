@@ -14,6 +14,7 @@ pip install -e .            # opencv-python-headless, numpy, Pillow
 ```bash
 tabsheet gui                 # 브라우저가 열림 (http://127.0.0.1:8765)
 tabsheet gui --no-browser --port 9000 --workdir ./work   # 옵션
+# 현재 폴더에 videos/ 가 있으면 자동으로 '서버 폴더 열기'가 켜집니다 (--media-dir 로 다른 폴더 지정 가능)
 ```
 
 1. 영상 파일을 끌어다 놓기 → 2. 악보가 보이는 시점으로 슬라이더를 옮기고 **화면에서 악보 영역을 드래그** → 3. "악보 추출" → 조각 미리보기에서 필요 없는 조각 체크 해제 → "PDF 만들기" / "JPG 만들기".
@@ -97,12 +98,14 @@ MCP 서버나 웹 API는 `core.py`의 함수를 그대로 감싸면 됩니다 (`
 `docs/` 폴더가 정적 사이트입니다. 영상은 업로드되지 않고 브라우저의 `<video>`로 직접 디코딩해 처리합니다.
 
 ```bash
-python -m http.server 8000 --directory docs     # http://127.0.0.1:8000 (GitHub Pages로 docs/ 를 배포해도 됨)
+python -m http.server 8000                       # 프로젝트 루트에서 실행 → http://127.0.0.1:8000/docs/ (videos/ 폴더 목록도 사용 가능)
+# docs/ 만 서비스해도 됨: python -m http.server 8000 --directory docs  (이 경우 서버 videos/ 목록 버튼은 쓸 수 없음, GitHub Pages도 동일)
 ```
 
 - `docs/core.js` : 파이썬 알고리즘의 JS 이식 (변화 점수, 구간 추적, 중앙값 합성, 페이드 판정)
 - `docs/pdf.js`  : A4 배치 + 외부 라이브러리 없는 PDF 작성기
 - `docs/app.js`, `docs/index.html` : 화면
+- 영상 고르기: 파일 선택/끌어놓기, **서버 videos/ 폴더**(정적 서버를 프로젝트 루트에서 실행하고 `/docs/`로 접속), **내 컴퓨터 폴더 선택**(Chrome/Edge는 폴더 접근 API, 그 외는 폴더 선택 입력). 서버 폴더 영상은 파일 전체를 브라우저로 가져옵니다
 - 한계: H.264/VP9 외 코덱(HEVC 등)은 재생 불가, 파이썬 버전보다 느림(60초 영상 약 1분)
 - 탭 숨김: 기본값은 '탭이 숨겨지면 일시정지'(돌아오면 이어서 진행). 고급 설정에서 끄면 계속 진행하며, 끝나면 보이는 탭/숨겨진 탭의 샘플당 평균 시간이 표시됩니다 (실제 PC 측정용)
 

@@ -100,7 +100,10 @@ def _cmd_extract(args: argparse.Namespace) -> int:
 def _cmd_gui(args: argparse.Namespace) -> int:
     from .server import serve
 
-    return serve(args.host, args.port, args.workdir, not args.no_browser, args.media_dir)
+    media_dir = args.media_dir
+    if media_dir is None and Path("videos").is_dir():  # 지정하지 않아도 현재 폴더의 videos/ 가 있으면 자동으로 연다
+        media_dir = "videos"
+    return serve(args.host, args.port, args.workdir, not args.no_browser, media_dir)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -142,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--workdir", help="업로드/결과 저장 폴더 (생략하면 임시 폴더, 종료 시 삭제)")
     p.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않음")
-    p.add_argument("--media-dir", help="이 폴더 안의 영상을 업로드 없이 바로 열 수 있게 함 (폴더 밖 경로는 거부)")
+    p.add_argument("--media-dir", help="이 폴더 안의 영상을 업로드 없이 바로 열 수 있게 함 (폴더 밖 경로는 거부). 생략하면 현재 폴더의 videos/ 를 자동 사용")
     p.set_defaults(fn=_cmd_gui)
 
     args = ap.parse_args(argv)

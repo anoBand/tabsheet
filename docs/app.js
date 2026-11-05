@@ -1,6 +1,7 @@
 // app.js — 브라우저 전용 tabsheet. 영상은 업로드되지 않고 <video> 로 직접 디코딩한다.
 import { Extractor, DEFAULTS } from './core.js';
 import { composePages, buildPdf } from './pdf.js';
+import { initMedia } from './media.js';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
@@ -46,6 +47,9 @@ $('file').onchange = (e) => openFile(e.target.files[0]);
 for (const ev of ['dragover', 'dragenter']) $('drop').addEventListener(ev, (e) => { e.preventDefault(); $('drop').classList.add('over'); });
 for (const ev of ['dragleave', 'drop']) $('drop').addEventListener(ev, () => $('drop').classList.remove('over'));
 $('drop').addEventListener('drop', (e) => { e.preventDefault(); openFile(e.dataTransfer.files[0]); });
+
+initMedia({ box: $('mediaBox'), select: $('mediaSel'), openBtn: $('mediaOpen'), serverBtn: $('serverBtn'), folderBtn: $('folderBtn'),
+  dirInput: $('dirInput'), onFile: openFile, status: (m, e) => setStatus($('openStatus'), m, e) });
 
 // ---------------------------------------------------------------- 영역 지정
 function setBBox(x, y, w, h) {
