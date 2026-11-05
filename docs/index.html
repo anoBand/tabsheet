@@ -161,6 +161,7 @@
           <label class="f">시작(초)<input id="start" type="number" step="0.5" min="0" value="0"></label>
           <label class="f">끝(초, 0=끝까지)<input id="end" type="number" step="0.5" min="0" value="0"></label>
         </div>
+        <label class="f" style="margin-top:8px;display:flex;gap:8px;align-items:center"><input type="checkbox" id="pauseHidden" checked> 탭이 숨겨지면 일시정지 (끄면 계속 진행하지만 느려질 수 있음)</label>
       </details>
     </section>
 
@@ -172,6 +173,7 @@
       </div>
       <div class="bar" aria-hidden="true"><i id="bar"></i></div>
       <p class="status" id="runStatus" role="status"></p>
+      <pre id="timing" class="meta" hidden style="white-space:pre-wrap"></pre>
     </section>
   </aside>
 

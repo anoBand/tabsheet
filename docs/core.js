@@ -179,7 +179,12 @@ class Run {
   }
 }
 
-const tick = () => new Promise((r) => setTimeout(r, 0));
+// UI에 숨 돌릴 틈을 주는 양보. setTimeout은 숨겨진 탭에서 1초 이상으로 제한되므로 MessageChannel을 쓴다.
+const tick = () => new Promise((r) => {
+  const c = new MessageChannel();
+  c.port1.onmessage = () => { c.port1.close(); r(); };
+  c.port2.postMessage(0);
+});
 
 export class Extractor {
   /** @param {Partial<typeof DEFAULTS>} params */

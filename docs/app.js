@@ -25,7 +25,7 @@ function openFile(f) {
 video.addEventListener('error', () => {
   $('vwrap').hidden = true; $('scrub').hidden = true; $('stageHint').hidden = true; $('drop').hidden = false;
   setStatus($('openStatus'),
-    '이 브라우저가 재생할 수 없는 영상입니다 (HEVC/H.265, 일부 mkv 등). H.264 mp4로 변환하거나 파이썬 버전을 사용하세요.', true);
+    '이 브라우저가 재생할 수 없는 영상입니다 (HEVC/H.265, 일부 mkv 등). H.264 mp4로 변환한 뒤 다시 불러오세요.', true);
 });
 video.addEventListener('loadedmetadata', () => {
   if (!video.videoWidth) return;
@@ -78,7 +78,8 @@ function seekTo(t) {
     const to = setTimeout(() => reject(new Error(`${fmtTime(t)} 위치로 이동하지 못했습니다`)), 15000);
     const done = () => { clearTimeout(to); resolve(); };
     video.addEventListener('seeked', () => {
-      if ('requestVideoFrameCallback' in video) {
+      // 보이는 탭: 프레임이 실제로 올라온 뒤에 그린다. 숨겨진 탭: 콜백이 오지 않고 타이머도 1초 이상으로 제한되므로 바로 진행.
+      if ('requestVideoFrameCallback' in video && !document.hidden) {
         let fired = false;
         video.requestVideoFrameCallback(() => { fired = true; done(); });
         setTimeout(() => { if (!fired) done(); }, 250); // 이미 그려진 프레임이면 콜백이 안 올 수 있음
@@ -99,6 +100,7 @@ async function run() {
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const g = cv.getContext('2d', { willReadFrequently: true });
 
+  const timing = []; st.timing = timing; $('timing').hidden = true;
   st.busy = true; st.cancel = false; st.segs = [];
   $('run').disabled = true; $('cancel').hidden = false; $('results').hidden = true;
   const t0 = performance.now();
@@ -106,10 +108,17 @@ async function run() {
     const n = Math.max(1, Math.floor((end - start - 0.05) / interval) + 1);
     for (let i = 0; i < n; i++) {
       if (st.cancel) throw new Error('중단했습니다');
+      if (document.hidden && $('pauseHidden').checked) {          // 숨겨진 탭에서는 브라우저가 느리게 만들므로 돌아올 때까지 기다린다
+        setStatus($('runStatus'), `탭이 숨겨져 일시정지했습니다 (${i}/${n}). 이 탭으로 돌아오면 이어서 진행합니다.`);
+        await new Promise((r) => { const f = () => { if (!document.hidden || st.cancel) { document.removeEventListener('visibilitychange', f); r(); } }; document.addEventListener('visibilitychange', f); });
+        i--; continue;
+      }
       const t = start + i * interval;
+      const ts = performance.now(), hid = document.hidden;
       await seekTo(t);
       g.drawImage(video, x, y, w, h, 0, 0, w, h);
       ex.push(t, g.getImageData(0, 0, w, h).data, w, h);
+      timing.push([performance.now() - ts, hid]);
       $('bar').style.width = `${(i + 1) / n * 90}%`;
       const el = (performance.now() - t0) / 1000;
       setStatus($('runStatus'), `프레임 읽는 중 ${i + 1}/${n} · ${fmtTime(t)} · 남은 시간 약 ${Math.round(el / (i + 1) * (n - i - 1))}초`);
@@ -120,6 +129,7 @@ async function run() {
     const sec = ((performance.now() - t0) / 1000).toFixed(1);
     setStatus($('runStatus'), `완료: ${st.segs.filter((s) => !s.faded).length}개 조각 (${sec}초 걸림)`);
     st.seconds = +sec;
+    showTiming(timing, sec);
     renderResults();
   } catch (e) {
     setStatus($('runStatus'), String(e.message || e), true);
@@ -127,6 +137,12 @@ async function run() {
     st.busy = false; $('run').disabled = false; $('cancel').hidden = true; $('bar').style.width = '0';
     video.currentTime = +$('time').value;
   }
+}
+function showTiming(timing, sec) {
+  const stat = (arr) => arr.length ? `${arr.length}장, 평균 ${(arr.reduce((a, b) => a + b[0], 0) / arr.length).toFixed(0)}ms` : '없음';
+  const vis = timing.filter((x) => !x[1]), hid = timing.filter((x) => x[1]);
+  $('timing').textContent = `총 ${sec}초 · 샘플 ${timing.length}장\n보이는 탭: ${stat(vis)}\n숨겨진 탭: ${stat(hid)}\n` + navigator.userAgent;
+  $('timing').hidden = false;
 }
 $('run').onclick = run;
 $('cancel').onclick = () => { st.cancel = true; };

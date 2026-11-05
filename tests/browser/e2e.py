@@ -1,4 +1,5 @@
-"""실제 Chrome 에서 브라우저 버전을 돌려 파이썬 구현과 결과를 비교한다.
+"""실제 Chrome 에서 브라우저 버전을 돌려 저장된 기대값(tests/browser/expected/<name>.json)과 비교한다.
+기대값은 파이썬 구현(v0 기준)에서 뽑은 조각 시간대이며, 파이썬을 제거한 뒤에도 JS 회귀 테스트로 쓴다.
 사용: python tests/browser/e2e.py CASES.json   (CASES: [{name, video, bbox:[x,y,w,h], expect}])"""
 import http.server, json, sys, threading, time
 from functools import partial
@@ -6,8 +7,6 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
-from tabsheet import Params, extract_segments  # noqa: E402
 
 
 def serve():
@@ -53,17 +52,16 @@ def main():
             wall = time.time() - t0
             status = page.inner_text("#runStatus")
             segs = page.evaluate("window.__tabsheet.st.segs.map(s => [s.tStart, s.tEnd, s.faded])")
-            py = extract_segments(Path(c["video"]), tuple(c["bbox"]), Params(), keep_faded=True)
-            pys = [(s.t_start, s.t_end, s.faded) for s in py]
+            pys = [tuple(s) for s in json.load(open(ROOT / "tests/browser/expected" / f"{c['name']}.json"))["segments"]]
             same_n = len(segs) == len(pys)
             same_t = same_n and all(overlap_ok(a, b_) and a[2] == b_[2] for a, b_ in zip(segs, pys))
             nonfaded = sum(1 for s in segs if not s[2])
             exp_ok = c["expect"] is None or nonfaded == c["expect"]
-            print(f"[{c['name']}] 브라우저 {nonfaded}개(+페이드 {len(segs) - nonfaded}) / 파이썬 {sum(1 for s in pys if not s[2])}개(+페이드 {sum(1 for s in pys if s[2])}) "
+            print(f"[{c['name']}] 브라우저 {nonfaded}개(+페이드 {len(segs) - nonfaded}) / 기대값 {sum(1 for s in pys if not s[2])}개(+페이드 {sum(1 for s in pys if s[2])}) "
                   f"· 시간대 일치={same_t} · 기대={c['expect']} · {wall:.1f}s · 오류={errs}")
             if not same_t:
                 print("   JS :", [(round(a, 1), round(b_, 1), f) for a, b_, f in segs])
-                print("   PY :", [(round(a, 1), round(b_, 1), f) for a, b_, f in pys])
+                print("   기대:", [(round(a, 1), round(b_, 1), f) for a, b_, f in pys])
             results.append((c["name"], same_t and exp_ok and not errs))
             if c.get("pdf"):
                 with page.expect_download() as d:

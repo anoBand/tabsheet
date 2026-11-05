@@ -103,10 +103,12 @@ python -m http.server 8000 --directory docs     # http://127.0.0.1:8000 (GitHub 
 - `docs/core.js` : 파이썬 알고리즘의 JS 이식 (변화 점수, 구간 추적, 중앙값 합성, 페이드 판정)
 - `docs/pdf.js`  : A4 배치 + 외부 라이브러리 없는 PDF 작성기
 - `docs/app.js`, `docs/index.html` : 화면
-- 한계: H.264/VP9 외 코덱(HEVC 등)은 재생 불가, 파이썬 버전보다 느림(60초 영상 약 1분), 처리 중 탭을 숨기면 느려질 수 있음
+- 한계: H.264/VP9 외 코덱(HEVC 등)은 재생 불가, 파이썬 버전보다 느림(60초 영상 약 1분)
+- 탭 숨김: 기본값은 '탭이 숨겨지면 일시정지'(돌아오면 이어서 진행). 고급 설정에서 끄면 계속 진행하며, 끝나면 보이는 탭/숨겨진 탭의 샘플당 평균 시간이 표시됩니다 (실제 PC 측정용)
 
 테스트:
 ```bash
 python tests/browser/make_parity_fixture.py VIDEO X,Y,W,H OUT && node tests/browser/parity.mjs OUT   # 파이썬↔JS 수치 일치
-python tests/browser/e2e.py cases.json OUTDIR     # 실제 Chrome에서 파이썬 결과와 비교 (Playwright 필요)
+python tests/browser/e2e.py cases.json OUTDIR     # 실제 Chrome에서 tests/browser/expected/*.json 과 비교 (Playwright 필요)
+xvfb-run python tests/browser/hidden.py VIDEO X,Y,W,H   # 숨김 탭 분기(일시정지/재개) 검증 (document.hidden 시뮬레이션)
 ```

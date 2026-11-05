@@ -31,7 +31,7 @@ export async function composePages(sources, o = PAGE) {
     for (const it of items) g.drawImage(sources[it.i], it.x, it.y, it.w, it.h);
     const blob = await c.convertToBlob({ type: 'image/jpeg', quality: o.quality });
     out.push({ jpeg: new Uint8Array(await blob.arrayBuffer()), w: o.w, h: o.h });
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => { const m = new MessageChannel(); m.port1.onmessage = () => { m.port1.close(); r(); }; m.port2.postMessage(0); });
   }
   return out;
 }
