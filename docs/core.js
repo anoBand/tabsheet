@@ -84,7 +84,9 @@ export function sharpness(g, w, h) {
 export function prepare(rgba, w, h, smallWidth) {
   const gray = toGray(rgba, w, h);
   const sw = smallWidth, sh = Math.max(1, Math.round(h * (smallWidth / w)));
-  return { small: resizeAreaGray(gray, w, h, sw, sh), sw, sh, sharp: sharpness(gray, w, h) };
+  const small = resizeAreaGray(gray, w, h, sw, sh);
+  // 선명도는 축소본에서 잰다 (전체 해상도 대비 약 1/36 비용). 중앙값을 못 쓰는 짧은 구간의 대표 프레임 고르기에만 쓰인다.
+  return { small, sw, sh, sharp: sharpness(small, sw, sh) };
 }
 
 // ---------------------------------------------------------------- 판정 지표

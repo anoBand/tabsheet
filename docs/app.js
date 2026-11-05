@@ -81,13 +81,10 @@ function seekTo(t) {
   return new Promise((resolve, reject) => {
     const to = setTimeout(() => reject(new Error(`${fmtTime(t)} 위치로 이동하지 못했습니다`)), 15000);
     const done = () => { clearTimeout(to); resolve(); };
+    // 'seeked' 시점에 이미 현재 프레임이 준비되어 있으므로 바로 그린다 (requestVideoFrameCallback 대기는 샘플당 약 0.2초를 낭비했고, 결과도 같았다)
     video.addEventListener('seeked', () => {
-      // 보이는 탭: 프레임이 실제로 올라온 뒤에 그린다. 숨겨진 탭: 콜백이 오지 않고 타이머도 1초 이상으로 제한되므로 바로 진행.
-      if ('requestVideoFrameCallback' in video && !document.hidden) {
-        let fired = false;
-        video.requestVideoFrameCallback(() => { fired = true; done(); });
-        setTimeout(() => { if (!fired) done(); }, 250); // 이미 그려진 프레임이면 콜백이 안 올 수 있음
-      } else done();
+      if (video.readyState >= 2) return done();
+      video.addEventListener('loadeddata', done, { once: true });
     }, { once: true });
     video.currentTime = t;
   });
@@ -110,6 +107,7 @@ async function run() {
   const t0 = performance.now();
   try {
     const n = Math.max(1, Math.floor((end - start - 0.05) / interval) + 1);
+    let pending = null;
     for (let i = 0; i < n; i++) {
       if (st.cancel) throw new Error('중단했습니다');
       if (document.hidden && $('pauseHidden').checked) {          // 숨겨진 탭에서는 브라우저가 느리게 만들므로 돌아올 때까지 기다린다
@@ -119,9 +117,12 @@ async function run() {
       }
       const t = start + i * interval;
       const ts = performance.now(), hid = document.hidden;
-      await seekTo(t);
+      await (pending || seekTo(t));
+      pending = null;
       g.drawImage(video, x, y, w, h, 0, 0, w, h);
-      ex.push(t, g.getImageData(0, 0, w, h).data, w, h);
+      const data = g.getImageData(0, 0, w, h).data;
+      if (i + 1 < n) { pending = seekTo(start + (i + 1) * interval); pending.catch(() => {}); } // 다음 프레임 디코딩을 먼저 시작해, 아래 계산과 겹쳐 진행
+      ex.push(t, data, w, h);
       timing.push([performance.now() - ts, hid]);
       $('bar').style.width = `${(i + 1) / n * 90}%`;
       const el = (performance.now() - t0) / 1000;
