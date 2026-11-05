@@ -102,12 +102,13 @@ async function run() {
   const g = cv.getContext('2d', { willReadFrequently: true });
 
   const timing = []; st.timing = timing; $('timing').hidden = true;
+  video.style.visibility = 'hidden'; // 추출 중에는 영상을 화면에 그리지 않는다 (프레임이 바뀔 때마다 화면 합성 비용이 듦)
   st.busy = true; st.cancel = false; st.segs = [];
   $('run').disabled = true; $('cancel').hidden = false; $('results').hidden = true;
   const t0 = performance.now();
   try {
     const n = Math.max(1, Math.floor((end - start - 0.05) / interval) + 1);
-    let pending = null;
+    let pending = null, lastUi = 0;
     for (let i = 0; i < n; i++) {
       if (st.cancel) throw new Error('중단했습니다');
       if (document.hidden && $('pauseHidden').checked) {          // 숨겨진 탭에서는 브라우저가 느리게 만들므로 돌아올 때까지 기다린다
@@ -124,9 +125,13 @@ async function run() {
       if (i + 1 < n) { pending = seekTo(start + (i + 1) * interval); pending.catch(() => {}); } // 다음 프레임 디코딩을 먼저 시작해, 아래 계산과 겹쳐 진행
       ex.push(t, data, w, h);
       timing.push([performance.now() - ts, hid]);
-      $('bar').style.width = `${(i + 1) / n * 90}%`;
-      const el = (performance.now() - t0) / 1000;
-      setStatus($('runStatus'), `프레임 읽는 중 ${i + 1}/${n} · ${fmtTime(t)} · 남은 시간 약 ${Math.round(el / (i + 1) * (n - i - 1))}초`);
+      const now = performance.now();
+      if (now - lastUi > 250 || i + 1 === n) {   // 화면 갱신은 0.25초에 한 번만 (매 샘플 갱신하면 레이아웃 비용이 듦)
+        lastUi = now;
+        $('bar').style.width = `${(i + 1) / n * 90}%`;
+        const el = (now - t0) / 1000;
+        setStatus($('runStatus'), `프레임 읽는 중 ${i + 1}/${n} · ${fmtTime(t)} · 남은 시간 약 ${Math.round(el / (i + 1) * (n - i - 1))}초`);
+      }
     }
     setStatus($('runStatus'), '조각 정리하는 중…');
     st.segs = await ex.finish({ keepFaded: true, onProgress: (p) => { $('bar').style.width = `${90 + p * 10}%`; } });
@@ -139,6 +144,7 @@ async function run() {
   } catch (e) {
     setStatus($('runStatus'), String(e.message || e), true);
   } finally {
+    video.style.visibility = '';
     st.busy = false; $('run').disabled = false; $('cancel').hidden = true; $('bar').style.width = '0';
     video.currentTime = +$('time').value;
   }
