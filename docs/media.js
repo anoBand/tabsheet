@@ -37,17 +37,21 @@ export function initMedia(ui) {
     ui.status(list.length ? `${note} 영상 ${list.length}개를 찾았습니다.` : `${note} 영상 파일을 찾지 못했습니다.`, !list.length);
   };
 
-  ui.serverBtn.onclick = async () => {
+  /** 서버의 videos/ 목록을 읽는다. silent면 실패해도 아무 말 없이 넘어간다 (실서비스에는 videos/ 가 없으므로). */
+  async function loadServer(silent) {
     for (const base of ['videos/', '../videos/']) {
       try {
         const r = await fetch(base, { cache: 'no-store' });
         if (!r.ok || !(r.headers.get('content-type') || '').includes('html')) continue;
         const list = parseListing(await r.text()).map((v) => ({ label: v.label, base, href: v.href }));
+        if (silent && !list.length) return;
         return fill(list, '서버의 videos/ 폴더에서');
       } catch { /* 다음 후보 */ }
     }
-    ui.status('이 서버에서 videos/ 폴더 목록을 읽을 수 없습니다. 정적 서버를 프로젝트 루트에서 실행했는지 확인하세요.', true);
-  };
+    if (!silent) ui.status('이 서버에서 videos/ 폴더 목록을 읽을 수 없습니다. 정적 서버를 프로젝트 루트에서 실행했는지 확인하세요.', true);
+  }
+  ui.serverBtn.onclick = () => loadServer(false);
+  loadServer(true); // 옵션 없이도 자동으로: videos/ 가 있으면 목록이 바로 나타남
 
   ui.folderBtn.onclick = async () => {
     if (!window.showDirectoryPicker) return ui.dirInput.click(); // Firefox/Safari

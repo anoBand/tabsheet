@@ -17,7 +17,7 @@ with sync_playwright() as p:
     pg = b.new_page(); errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.goto(f"{base}/docs/index.html")
-    pg.click("#serverBtn")
+    pg.wait_for_selector("#mediaBox:not([hidden])", timeout=5000)   # 버튼을 누르지 않아도 자동으로 목록이 나와야 함
     opts = pg.eval_on_selector_all("#mediaSel option", "o => o.map(x => x.textContent)")
     check("서버 videos/ 목록 (txt 제외, 하위폴더는 건너뜀)", opts == ["sparse.mp4"], str(opts))
     pg.click("#mediaOpen")
@@ -35,6 +35,9 @@ with sync_playwright() as p:
     pg3 = b.new_page(); pg3.goto(f"{base}/docs/index.html")
     pg3.evaluate("window.fetch = () => Promise.resolve(new Response('', {status: 404}))")
     pg3.click("#serverBtn"); pg3.wait_for_timeout(300)
+    # videos/ 가 없는 서버(실서비스)에서는 아무 메시지 없이 조용해야 함
+    pg4 = b.new_page(); pg4.route("**/videos/", lambda r: r.fulfill(status=404)); pg4.goto(f"{base}/docs/index.html"); pg4.wait_for_timeout(800)
+    check("videos/ 없으면 조용함", pg4.is_hidden("#mediaBox") and pg4.inner_text("#openStatus") == "")
     check("목록 실패 안내", "읽을 수 없습니다" in pg3.inner_text("#openStatus"))
     check("JS 오류 없음", not errs, str(errs))
     b.close()
