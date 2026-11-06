@@ -43,7 +43,7 @@ def main():
                 print(f"[{c['name']}] 오류 안내 표시: {msg}")
                 results.append((c["name"], bool(msg) and not errs))
                 ctx.close(); continue
-            page.wait_for_function("document.getElementById('info').textContent.length > 0", timeout=20000)
+            page.wait_for_function("document.getElementById('video').videoWidth > 0", timeout=20000)
             x, y, w, h = c["bbox"]
             page.evaluate(f"window.__tabsheet.setBBox({x},{y},{w},{h})")
             t0 = time.time()

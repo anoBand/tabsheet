@@ -10,20 +10,23 @@ const st = { bbox: null, segs: [], busy: false, cancel: false, url: null, name: 
 const fmtTime = (s) => { s = Math.round(s * 10) / 10; const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toFixed(1).padStart(4, '0')}`; };
 const setStatus = (el, msg, err = false) => { el.textContent = msg; el.classList.toggle('error', err); };
 const enable = (id, on) => $(id).classList.toggle('off', !on);
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 
-// ---------------------------------------------------------------- 영상 열기
+// ---------------------------------------------------------------- 1. 영상 열기
 function openFile(f) {
-  if (!f) return;
+  if (!f || st.busy) return;
   if (st.url) URL.revokeObjectURL(st.url);
   st.url = URL.createObjectURL(f);
-  st.name = f.name.replace(/\.[^.]+$/, '') || 'sheet';
-  st.bbox = null; st.segs = [];
-  $('sel').hidden = true; $('results').hidden = true; $('run').disabled = true;
+  st.name = f.name.replace(/^.*\//, '').replace(/\.[^.]+$/, '') || 'sheet';
+  st.segs = [];
+  $('results').hidden = true;
+  clearBBox();
   enable('s2', false); enable('s3', false);
   setStatus($('openStatus'), '영상을 읽는 중…');
   video.src = st.url;
 }
 video.addEventListener('error', () => {
+  if (!video.src) return;
   $('vwrap').hidden = true; $('scrub').hidden = true; $('stageHint').hidden = true; $('drop').hidden = false;
   setStatus($('openStatus'),
     '이 브라우저가 재생할 수 없는 영상입니다 (HEVC/H.265, 일부 mkv 등). H.264 mp4로 변환한 뒤 다시 불러오세요.', true);
@@ -35,9 +38,9 @@ video.addEventListener('loadedmetadata', () => {
   video.currentTime = +$('time').value;
   $('info').textContent = `${video.videoWidth}×${video.videoHeight}, ${fmtTime(video.duration)}`;
   setStatus($('openStatus'), '');
-  enable('s2', true);
+  enable('s2', true); enable('s3', true); updateRunState();
 });
-$('time').addEventListener('input', () => { video.currentTime = +$('time').value; });
+$('time').addEventListener('input', () => { if (!st.busy) video.currentTime = +$('time').value; });
 video.addEventListener('seeked', () => { if (!st.busy) $('timeOut').textContent = fmtTime(video.currentTime); });
 
 $('pick').onclick = () => $('file').click();
@@ -51,37 +54,69 @@ $('drop').addEventListener('drop', (e) => { e.preventDefault(); openFile(e.dataT
 initMedia({ box: $('mediaBox'), select: $('mediaSel'), openBtn: $('mediaOpen'), serverBtn: $('serverBtn'), folderBtn: $('folderBtn'),
   dirInput: $('dirInput'), onFile: openFile, status: (m, e) => setStatus($('openStatus'), m, e) });
 
-// ---------------------------------------------------------------- 영역 지정
+// ---------------------------------------------------------------- 2. 영역 지정 (드래그 + 숫자 입력)
+function drawSel() {
+  const sel = $('sel');
+  if (!st.bbox || !video.videoWidth) { sel.hidden = true; return; }
+  const k = video.clientWidth / video.videoWidth, b = st.bbox;
+  Object.assign(sel.style, { left: `${b.x * k}px`, top: `${b.y * k}px`, width: `${b.w * k}px`, height: `${b.h * k}px` });
+  sel.hidden = false;
+}
+function syncInputs() {
+  const b = st.bbox;
+  $('bx').value = b ? b.x : ''; $('by').value = b ? b.y : ''; $('bw').value = b ? b.w : ''; $('bh').value = b ? b.h : '';
+}
+function updateRunState() {
+  const ok = !!(video.videoWidth && st.bbox && st.bbox.w >= 8 && st.bbox.h >= 8);
+  $('run').disabled = !ok || st.busy;
+  if (st.busy) return;
+  if (video.videoWidth && !ok) setStatus($('runStatus'), '먼저 화면에서 악보 영역을 드래그하세요.');
+  else if (ok && $('runStatus').textContent.startsWith('먼저')) setStatus($('runStatus'), '');
+}
 function setBBox(x, y, w, h) {
   const W = video.videoWidth, H = video.videoHeight;
-  x = Math.max(0, Math.min(W - 1, Math.round(x))); y = Math.max(0, Math.min(H - 1, Math.round(y)));
-  w = Math.max(1, Math.min(W - x, Math.round(w))); h = Math.max(1, Math.min(H - y, Math.round(h)));
+  x = clamp(Math.round(x), 0, W - 1); y = clamp(Math.round(y), 0, H - 1);
+  w = clamp(Math.round(w), 1, W - x); h = clamp(Math.round(h), 1, H - y);
   st.bbox = { x, y, w, h };
-  const k = video.clientWidth / W, sel = $('sel');
-  Object.assign(sel.style, { left: `${x * k}px`, top: `${y * k}px`, width: `${w * k}px`, height: `${h * k}px` });
-  sel.hidden = false;
-  $('bboxText').textContent = `x=${x}, y=${y}, 너비=${w}, 높이=${h}`;
-  enable('s3', true); $('run').disabled = st.busy;
+  drawSel(); syncInputs(); updateRunState();
 }
+function clearBBox() { st.bbox = null; drawSel(); syncInputs(); updateRunState(); }
+
 let drag = null;
 const wrap = $('vwrap');
-const toVideo = (e) => { const r = video.getBoundingClientRect(), k = video.videoWidth / r.width; return [(e.clientX - r.left) * k, (e.clientY - r.top) * k]; };
+const toVideo = (e) => {
+  const r = video.getBoundingClientRect(), k = video.videoWidth / r.width;
+  return [clamp((e.clientX - r.left) * k, 0, video.videoWidth), clamp((e.clientY - r.top) * k, 0, video.videoHeight)];
+};
 wrap.addEventListener('pointerdown', (e) => { if (st.busy) return; drag = toVideo(e); wrap.setPointerCapture(e.pointerId); });
 wrap.addEventListener('pointermove', (e) => {
   if (!drag) return;
   const [x, y] = toVideo(e);
-  if (Math.abs(x - drag[0]) > 4 && Math.abs(y - drag[1]) > 4) setBBox(Math.min(x, drag[0]), Math.min(y, drag[1]), Math.abs(x - drag[0]), Math.abs(y - drag[1]));
+  setBBox(Math.min(x, drag[0]), Math.min(y, drag[1]), Math.abs(x - drag[0]), Math.abs(y - drag[1]));
 });
-wrap.addEventListener('pointerup', () => { drag = null; });
-window.addEventListener('resize', () => { if (st.bbox) { const b = st.bbox; setBBox(b.x, b.y, b.w, b.h); } });
+const endDrag = () => {
+  if (!drag) return;
+  drag = null;
+  if (st.bbox && (st.bbox.w < 8 || st.bbox.h < 8)) clearBBox(); // 클릭만 한 경우
+};
+wrap.addEventListener('pointerup', endDrag);
+wrap.addEventListener('pointercancel', endDrag);
+['bx', 'by', 'bw', 'bh'].forEach((id) => $(id).addEventListener('change', () => {
+  if (!video.videoWidth || st.busy) return;
+  const v = ['bx', 'by', 'bw', 'bh'].map((i) => parseInt($(i).value, 10));
+  if (v.some(Number.isNaN) || v[2] < 1 || v[3] < 1) return;
+  setBBox(...v);
+}));
+$('clearSel').onclick = () => { if (!st.busy) clearBBox(); };
+window.addEventListener('resize', drawSel);
 
-// ---------------------------------------------------------------- 프레임 샘플링
-/** t초로 이동해 그 프레임이 실제로 화면에 올라올 때까지 기다린다. */
+// ---------------------------------------------------------------- 3. 프레임 샘플링 + 추출
+/** t초로 이동해 현재 프레임이 준비될 때까지 기다린다. */
 function seekTo(t) {
   return new Promise((resolve, reject) => {
     const to = setTimeout(() => reject(new Error(`${fmtTime(t)} 위치로 이동하지 못했습니다`)), 15000);
     const done = () => { clearTimeout(to); resolve(); };
-    // 'seeked' 시점에 이미 현재 프레임이 준비되어 있으므로 바로 그린다 (requestVideoFrameCallback 대기는 샘플당 약 0.2초를 낭비했고, 결과도 같았다)
+    // 'seeked' 시점에 이미 현재 프레임이 준비되어 있으므로 바로 그린다 (프레임 콜백을 기다리면 샘플당 약 0.2초를 낭비했고, 결과는 같았다)
     video.addEventListener('seeked', () => {
       if (video.readyState >= 2) return done();
       video.addEventListener('loadeddata', done, { once: true });
@@ -90,47 +125,49 @@ function seekTo(t) {
   });
 }
 
+function paramsFromForm() {
+  const n = (id, d) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; };
+  return {
+    interval: Math.max(0.1, n('pInterval', DEFAULTS.interval)), minRun: Math.max(1, Math.round(n('pMinRun', DEFAULTS.minRun))),
+    stableThr: n('pStable', DEFAULTS.stableThr), anchorThr: n('pAnchor', DEFAULTS.anchorThr),
+    dedupeThr: n('pDedupe', DEFAULTS.dedupeThr), fadeRatio: n('pFade', DEFAULTS.fadeRatio), median: $('pMedian').checked,
+  };
+}
+
 async function run() {
   if (!st.bbox || st.busy) return;
-  const num = (id, d) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; };
-  const interval = Math.max(0.1, num('interval', DEFAULTS.interval));
-  const start = Math.max(0, num('start', 0));
-  const end = num('end', 0) > 0 ? Math.min(num('end', 0), video.duration) : video.duration;
-  const ex = new Extractor({ interval, fadeRatio: num('fadeRatio', DEFAULTS.fadeRatio) });
+  const params = paramsFromForm();
+  const start = Math.max(0, parseFloat($('pStart').value) || 0);
+  const endV = parseFloat($('pEnd').value);
+  const end = endV > 0 ? Math.min(endV, video.duration) : video.duration;
+  const ex = new Extractor(params);
   const { x, y, w, h } = st.bbox;
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const g = cv.getContext('2d', { willReadFrequently: true });
 
   const timing = []; st.timing = timing; $('timing').hidden = true;
-  video.style.visibility = 'hidden'; // 추출 중에는 영상을 화면에 그리지 않는다 (프레임이 바뀔 때마다 화면 합성 비용이 듦)
   st.busy = true; st.cancel = false; st.segs = [];
   $('run').disabled = true; $('cancel').hidden = false; $('results').hidden = true;
   const t0 = performance.now();
   try {
-    const n = Math.max(1, Math.floor((end - start - 0.05) / interval) + 1);
+    const n = Math.max(1, Math.floor((end - start - 0.05) / params.interval) + 1);
     let pending = null, lastUi = 0;
     for (let i = 0; i < n; i++) {
       if (st.cancel) throw new Error('중단했습니다');
-      if (document.hidden && $('pauseHidden').checked) {          // 숨겨진 탭에서는 브라우저가 느리게 만들므로 돌아올 때까지 기다린다
-        setStatus($('runStatus'), `탭이 숨겨져 일시정지했습니다 (${i}/${n}). 이 탭으로 돌아오면 이어서 진행합니다.`);
-        await new Promise((r) => { const f = () => { if (!document.hidden || st.cancel) { document.removeEventListener('visibilitychange', f); r(); } }; document.addEventListener('visibilitychange', f); });
-        i--; continue;
-      }
-      const t = start + i * interval;
+      const t = start + i * params.interval;
       const ts = performance.now(), hid = document.hidden;
       await (pending || seekTo(t));
       pending = null;
       g.drawImage(video, x, y, w, h, 0, 0, w, h);
       const data = g.getImageData(0, 0, w, h).data;
-      if (i + 1 < n) { pending = seekTo(start + (i + 1) * interval); pending.catch(() => {}); } // 다음 프레임 디코딩을 먼저 시작해, 아래 계산과 겹쳐 진행
+      if (i + 1 < n) { pending = seekTo(start + (i + 1) * params.interval); pending.catch(() => {}); } // 다음 프레임 디코딩을 먼저 시작해 아래 계산과 겹침
       ex.push(t, data, w, h);
       timing.push([performance.now() - ts, hid]);
       const now = performance.now();
-      if (now - lastUi > 250 || i + 1 === n) {   // 화면 갱신은 0.25초에 한 번만 (매 샘플 갱신하면 레이아웃 비용이 듦)
+      if (now - lastUi > 250 || i + 1 === n) {  // 화면 갱신은 0.25초에 한 번만
         lastUi = now;
         $('bar').style.width = `${(i + 1) / n * 90}%`;
-        const el = (now - t0) / 1000;
-        setStatus($('runStatus'), `프레임 읽는 중 ${i + 1}/${n} · ${fmtTime(t)} · 남은 시간 약 ${Math.round(el / (i + 1) * (n - i - 1))}초`);
+        setStatus($('runStatus'), `프레임 읽는 중 ${i + 1}/${n} · ${fmtTime(t)} · 남은 시간 약 ${Math.round((now - t0) / 1000 / (i + 1) * (n - i - 1))}초`);
       }
     }
     setStatus($('runStatus'), '조각 정리하는 중…');
@@ -144,15 +181,14 @@ async function run() {
   } catch (e) {
     setStatus($('runStatus'), String(e.message || e), true);
   } finally {
-    video.style.visibility = '';
-    st.busy = false; $('run').disabled = false; $('cancel').hidden = true; $('bar').style.width = '0';
+    st.busy = false; $('cancel').hidden = true; $('bar').style.width = '0';
+    updateRunState();
     video.currentTime = +$('time').value;
   }
 }
 function showTiming(timing, sec) {
   const stat = (arr) => arr.length ? `${arr.length}장, 평균 ${(arr.reduce((a, b) => a + b[0], 0) / arr.length).toFixed(0)}ms` : '없음';
-  const vis = timing.filter((x) => !x[1]), hid = timing.filter((x) => x[1]);
-  $('timing').textContent = `총 ${sec}초 · 샘플 ${timing.length}장\n보이는 탭: ${stat(vis)}\n숨겨진 탭: ${stat(hid)}\n` + navigator.userAgent;
+  $('timing').textContent = `총 ${sec}초 · 샘플 ${timing.length}장\n보이는 탭: ${stat(timing.filter((x) => !x[1]))}\n숨겨진 탭: ${stat(timing.filter((x) => x[1]))}\n${navigator.userAgent}`;
   $('timing').hidden = false;
 }
 $('run').onclick = run;
