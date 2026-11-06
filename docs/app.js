@@ -145,7 +145,6 @@ async function run() {
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const g = cv.getContext('2d', { willReadFrequently: true });
 
-  const timing = []; st.timing = timing; $('timing').hidden = true;
   st.busy = true; st.cancel = false; st.segs = [];
   $('run').disabled = true; $('cancel').hidden = false; $('results').hidden = true;
   const t0 = performance.now();
@@ -155,14 +154,12 @@ async function run() {
     for (let i = 0; i < n; i++) {
       if (st.cancel) throw new Error('중단했습니다');
       const t = start + i * params.interval;
-      const ts = performance.now(), hid = document.hidden;
       await (pending || seekTo(t));
       pending = null;
       g.drawImage(video, x, y, w, h, 0, 0, w, h);
       const data = g.getImageData(0, 0, w, h).data;
       if (i + 1 < n) { pending = seekTo(start + (i + 1) * params.interval); pending.catch(() => {}); } // 다음 프레임 디코딩을 먼저 시작해 아래 계산과 겹침
       ex.push(t, data, w, h);
-      timing.push([performance.now() - ts, hid]);
       const now = performance.now();
       if (now - lastUi > 250 || i + 1 === n) {  // 화면 갱신은 0.25초에 한 번만
         lastUi = now;
@@ -176,7 +173,6 @@ async function run() {
     const sec = ((performance.now() - t0) / 1000).toFixed(1);
     setStatus($('runStatus'), `완료: ${st.segs.filter((s) => !s.faded).length}개 조각 (${sec}초 걸림)`);
     st.seconds = +sec;
-    showTiming(timing, sec);
     renderResults();
   } catch (e) {
     setStatus($('runStatus'), String(e.message || e), true);
@@ -185,11 +181,6 @@ async function run() {
     updateRunState();
     video.currentTime = +$('time').value;
   }
-}
-function showTiming(timing, sec) {
-  const stat = (arr) => arr.length ? `${arr.length}장, 평균 ${(arr.reduce((a, b) => a + b[0], 0) / arr.length).toFixed(0)}ms` : '없음';
-  $('timing').textContent = `총 ${sec}초 · 샘플 ${timing.length}장\n보이는 탭: ${stat(timing.filter((x) => !x[1]))}\n숨겨진 탭: ${stat(timing.filter((x) => x[1]))}\n${navigator.userAgent}`;
-  $('timing').hidden = false;
 }
 $('run').onclick = run;
 $('cancel').onclick = () => { st.cancel = true; };
