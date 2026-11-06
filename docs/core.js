@@ -84,7 +84,9 @@ export function sharpness(g, w, h) {
 export function prepare(rgba, w, h, smallWidth) {
   const gray = toGray(rgba, w, h);
   const sw = smallWidth, sh = Math.max(1, Math.round(h * (smallWidth / w)));
-  return { small: resizeAreaGray(gray, w, h, sw, sh), sw, sh, sharp: sharpness(gray, w, h) };
+  const small = resizeAreaGray(gray, w, h, sw, sh);
+  // 선명도는 축소본에서 잰다 (전체 해상도 대비 약 1/36 비용). 중앙값을 못 쓰는 짧은 구간의 대표 프레임 고르기에만 쓰인다.
+  return { small, sw, sh, sharp: sharpness(small, sw, sh) };
 }
 
 // ---------------------------------------------------------------- 판정 지표
@@ -179,7 +181,12 @@ class Run {
   }
 }
 
-const tick = () => new Promise((r) => setTimeout(r, 0));
+// UI에 숨 돌릴 틈을 주는 양보. setTimeout은 숨겨진 탭에서 1초 이상으로 제한되므로 MessageChannel을 쓴다.
+const tick = () => new Promise((r) => {
+  const c = new MessageChannel();
+  c.port1.onmessage = () => { c.port1.close(); r(); };
+  c.port2.postMessage(0);
+});
 
 export class Extractor {
   /** @param {Partial<typeof DEFAULTS>} params */

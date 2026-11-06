@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tabsheet (브라우저 버전)</title>
+<title>tabsheet</title>
 <style>
   :root {
     --ink: #18213b;
@@ -116,14 +116,19 @@
   @media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
 </style>
 <style>
-  .vwrap { position: relative; line-height: 0; cursor: crosshair; touch-action: none; user-select: none; background: #111; }
+  .vwrap { position: relative; overflow: hidden; line-height: 0; cursor: crosshair; touch-action: none; user-select: none; background: #111; }
   .vwrap video { width: 100%; height: auto; display: block; }
   .privacy { margin: 0; padding: 10px 16px; font-size: 13px; color: var(--ink-soft); border-top: 1px solid var(--rule); background: #f7faf9; }
+  .results .resbar { position: sticky; top: 0; z-index: 5; display: flex; background: var(--sheet); padding: 8px 0; margin-bottom: 8px; border-bottom: 1px solid var(--rule); }
+  .results .resbar .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .results .resbar .sep { width: 1px; height: 22px; background: var(--rule); margin: 0 4px; }
+  .results .resbar .status { flex-basis: 100%; margin: 0; min-height: 0; }
+  .results .resbar .status:empty { display: none; }
 </style>
 </head>
 <body>
 <header>
-  <div class="mark"><h1>tabsheet</h1><p>브라우저 버전 · 영상은 내 컴퓨터를 떠나지 않습니다</p></div>
+  <div class="mark"><h1>tabsheet</h1><p>타브 악보 영상에서 악보만 골라 PDF·JPG로 모읍니다 · 영상은 내 컴퓨터를 떠나지 않습니다</p></div>
 </header>
 
 <main>
@@ -138,57 +143,78 @@
       <output id="timeOut" for="time">0:00</output>
     </div>
     <p id="stageHint" class="hint" hidden>악보가 보이는 시점으로 옮긴 뒤, 화면에서 악보 영역을 드래그하세요. 다시 드래그하면 영역이 바뀝니다.</p>
-    <p class="privacy">파일은 업로드되지 않고 이 브라우저 안에서만 처리됩니다. 처리 중에는 이 탭을 닫거나 숨기지 마세요.</p>
+    <p class="privacy">파일은 업로드되지 않고 이 브라우저 안에서만 처리됩니다.</p>
   </section>
 
   <aside>
     <section class="step" id="s1">
       <h2><span class="n">1</span>영상 열기</h2>
-      <button class="btn ghost" id="pick" type="button">영상 파일 선택</button>
+      <div class="line" style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost" id="pick" type="button">영상 파일 선택</button>
+        <button class="btn ghost" id="folderBtn" type="button">내 컴퓨터 폴더 선택</button>
+      </div>
       <input id="file" type="file" accept="video/*,.mkv" hidden>
-      <p class="meta" id="info"></p>
+      <input id="dirInput" type="file" webkitdirectory hidden>
+      <div class="media" id="mediaBox" hidden>
+        <p class="muted" style="margin:10px 0 8px">또는 목록에서 열기 (업로드 없이)</p>
+        <div class="line"><select id="mediaSel" aria-label="폴더의 영상"></select><button class="btn small" id="mediaOpen" type="button">열기</button><button class="btn ghost small" id="serverBtn" type="button" title="서버의 videos/ 목록 다시 읽기">새로고침</button></div>
+      </div>
+      <p class="meta" id="info">아직 열린 영상이 없습니다.</p>
       <p class="status" id="openStatus" role="status"></p>
     </section>
 
     <section class="step off" id="s2">
       <h2><span class="n">2</span>악보 영역</h2>
-      <p class="muted" id="bboxText">화면에서 드래그해 지정하세요.</p>
-      <details>
-        <summary>고급 설정</summary>
-        <div class="grid2">
-          <label class="f">샘플 간격(초)<input id="interval" type="number" step="0.05" min="0.1" value="0.5"></label>
-          <label class="f">페이드 판정(0=끔)<input id="fadeRatio" type="number" step="0.05" min="0" max="1" value="0.75"></label>
-          <label class="f">시작(초)<input id="start" type="number" step="0.5" min="0" value="0"></label>
-          <label class="f">끝(초, 0=끝까지)<input id="end" type="number" step="0.5" min="0" value="0"></label>
-        </div>
-      </details>
+      <p class="muted">화면에서 드래그하거나 값을 직접 입력하세요. 단위는 픽셀입니다.</p>
+      <div class="row">
+        <label class="f">x<input id="bx" type="number" min="0" step="1"></label>
+        <label class="f">y<input id="by" type="number" min="0" step="1"></label>
+        <label class="f">너비<input id="bw" type="number" min="1" step="1"></label>
+        <label class="f">높이<input id="bh" type="number" min="1" step="1"></label>
+      </div>
+      <p style="margin:10px 0 0"><button class="btn ghost small" id="clearSel" type="button">영역 지우기</button></p>
     </section>
 
     <section class="step off" id="s3">
       <h2><span class="n">3</span>악보 추출</h2>
+      <div class="grid2">
+        <label class="f">시작(초)<input id="pStart" type="number" min="0" step="0.5" value="0"></label>
+        <label class="f">끝(초, 비우면 끝까지)<input id="pEnd" type="number" min="0" step="0.5"></label>
+      </div>
+      <details>
+        <summary>세부 설정</summary>
+        <div class="grid2">
+          <label class="f">샘플 간격(초)<input id="pInterval" type="number" min="0.1" max="10" step="0.05" value="0.5"></label>
+          <label class="f">최소 연속 샘플<input id="pMinRun" type="number" min="1" step="1" value="2"></label>
+          <label class="f">같은 악보로 볼 기준<input id="pStable" type="number" min="0" max="1" step="0.01" value="0.10"></label>
+          <label class="f">느린 페이드 기준<input id="pAnchor" type="number" min="0" max="1" step="0.01" value="0.20"></label>
+          <label class="f">중복 병합 기준<input id="pDedupe" type="number" min="0" max="1" step="0.01" value="0.05"></label>
+          <label class="f">페이드 잔상 판정(0이면 끔)<input id="pFade" type="number" min="0" max="2" step="0.05" value="0.75"></label>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input id="pMedian" type="checkbox" checked> 커서·하이라이트 지우기</label>
+      </details>
       <div class="stack">
         <button class="btn" id="run" type="button" disabled>악보 추출</button>
         <button class="btn ghost" id="cancel" type="button" hidden>중단</button>
       </div>
       <div class="bar" aria-hidden="true"><i id="bar"></i></div>
-      <p class="status" id="runStatus" role="status"></p>
+      <p class="status" id="runStatus" role="status" aria-live="polite"></p>
     </section>
   </aside>
 
-  <section class="results" id="results" hidden>
-    <header>
-      <h2 id="resTitle">추출된 악보 조각</h2>
+  <section class="results" id="results" hidden aria-label="추출 결과">
+    <header class="resbar">
+      <h2 id="resTitle">악보 조각</h2>
       <div class="toolbar">
         <button class="btn ghost small" id="allOn" type="button">모두 선택</button>
         <button class="btn ghost small" id="allOff" type="button">모두 해제</button>
+        <span class="sep" aria-hidden="true"></span>
+        <button class="btn small" id="mkPdf" type="button">PDF 만들기</button>
+        <button class="btn ghost small" id="mkJpg" type="button">JPG 만들기</button>
       </div>
+      <p class="status" id="outStatus" role="status" aria-live="polite"></p>
     </header>
     <div class="pieces" id="pieces"></div>
-    <div class="outputs">
-      <button class="btn" id="mkPdf" type="button">PDF 만들기</button>
-      <button class="btn ghost" id="mkJpg" type="button">JPG 만들기</button>
-      <span class="status" id="outStatus" role="status"></span>
-    </div>
   </section>
 </main>
 <script type="module" src="app.js"></script>
