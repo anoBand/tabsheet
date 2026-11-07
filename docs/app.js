@@ -2,6 +2,8 @@
 import { Extractor, DEFAULTS } from './core.js';
 import { composePages, buildPdf } from './pdf.js';
 import { initMedia } from './media.js';
+import { tidy, looksLikeScroll } from './stitch.js';
+import { parseTime } from './timefmt.js';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
@@ -137,9 +139,11 @@ function paramsFromForm() {
 async function run() {
   if (!st.bbox || st.busy) return;
   const params = paramsFromForm();
-  const start = Math.max(0, parseFloat($('pStart').value) || 0);
-  const endV = parseFloat($('pEnd').value);
-  const end = endV > 0 ? Math.min(endV, video.duration) : video.duration;
+  const startV = parseTime($('pStart').value), endV = parseTime($('pEnd').value);
+  if (Number.isNaN(startV) || Number.isNaN(endV)) { setStatus($('runStatus'), '시작/끝은 90, 1:30, 1:02:03 같은 형식으로 입력하세요.', true); return; }
+  const start = Math.min(startV ?? 0, Math.max(0, video.duration - 0.1));
+  const end = endV != null && endV > start ? Math.min(endV, video.duration) : video.duration;
+  if (endV != null && endV <= start) { setStatus($('runStatus'), '끝 시간은 시작 시간보다 커야 합니다.', true); return; }
   const ex = new Extractor(params);
   const { x, y, w, h } = st.bbox;
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
@@ -174,6 +178,8 @@ async function run() {
     setStatus($('runStatus'), `완료: ${st.segs.filter((s) => !s.faded).length}개 조각 (${sec}초 걸림)`);
     st.seconds = +sec;
     renderResults();
+    st.busy = false;
+    await runTidy(true); // 스크롤형 영상이면 겹침을 자동으로 정리 (확실하지 않으면 그대로 둠)
   } catch (e) {
     setStatus($('runStatus'), String(e.message || e), true);
   } finally {
@@ -191,10 +197,12 @@ function segCanvas(s) {
   c.getContext('2d').putImageData(new ImageData(s.image.rgba, s.image.w, s.image.h), 0, 0);
   return c;
 }
-function renderResults() {
+function renderResults(list = st.segs, tidied = false) {
   const box = $('pieces'); box.replaceChildren();
-  st.segs.forEach((s) => {
-    s.on = !s.faded;
+  st.shown = list; st.tidied = tidied;
+  $('tidyBtn').textContent = tidied ? '원본 조각 보기' : '마디 정리';
+  list.forEach((s) => {
+    s.on = tidied ? true : !s.faded;
     const fig = document.createElement('figure'); fig.className = 'piece' + (s.on ? '' : ' skip');
     const c = segCanvas(s); c.style.cssText = 'display:block;width:100%;height:auto;background:#fff';
     s.canvas = c;
@@ -203,14 +211,39 @@ function renderResults() {
     cb.onchange = () => { s.on = cb.checked; fig.classList.toggle('skip', !s.on); };
     s.cb = cb; s.fig = fig;
     const lb = document.createElement('label'); lb.htmlFor = cb.id;
-    lb.textContent = `조각 ${s.index}` + (s.faded ? ' · 페이드 잔상으로 의심되어 제외됨' : '');
+    lb.textContent = (tidied ? `줄 ${s.index}` : `조각 ${s.index}`) + (s.faded ? ' · 페이드 잔상으로 의심되어 제외됨' : '');
     const tm = document.createElement('span'); tm.className = 'time'; tm.textContent = `${fmtTime(s.tStart)} – ${fmtTime(s.tEnd)}`;
     cap.append(cb, lb, tm); fig.append(c, cap); box.append(fig);
   });
-  $('resTitle').textContent = `추출된 악보 조각 ${st.segs.filter((s) => !s.faded).length}개`;
+  $('resTitle').textContent = tidied ? `정리된 악보 ${list.length}줄` : `추출된 악보 조각 ${list.filter((s) => !s.faded).length}개`;
   $('results').hidden = false;
 }
-const setAll = (on) => st.segs.forEach((s) => { s.on = on; s.cb.checked = on; s.fig.classList.toggle('skip', !on); });
+const setAll = (on) => st.shown.forEach((s) => { s.on = on; s.cb.checked = on; s.fig.classList.toggle('skip', !on); });
+/** 겹침 정리. auto=true(추출 직후 자동)면 스크롤형 영상으로 확실할 때만 적용하고, 아니면 아무것도 바꾸지 않는다. */
+async function runTidy(auto) {
+  const picked = st.segs.filter((x) => x.on !== false && !x.faded);
+  if (picked.length < 2) { if (!auto) setStatus($('outStatus'), '정리하려면 조각을 2개 이상 선택하세요.', true); return false; }
+  st.busy = true; $('tidyBtn').disabled = true;
+  try {
+    const { rows, info } = await tidy(picked, {}, (p) => setStatus($('outStatus'), `겹침 찾는 중… ${Math.round(p * 100)}%`));
+    if (auto ? !looksLikeScroll(info, picked.length) : !info.links) {
+      setStatus($('outStatus'), auto ? '' : '서로 겹치는 조각을 찾지 못해 그대로 둡니다. (화면이 통째로 바뀌는 영상이면 정상입니다)');
+      return false;
+    }
+    const list = rows.map((r, i) => ({ index: i + 1, tStart: r.tStart, tEnd: r.tEnd, image: r.image, faded: false, from: r.from }));
+    renderResults(list, true);
+    setStatus($('outStatus'), `${picked.length}조각 → ${list.length}줄로 자동 정리했습니다 (겹침 ${info.links}곳). 틀려 보이면 '원본 조각 보기'로 되돌리세요.`);
+    return true;
+  } catch (e) {
+    setStatus($('outStatus'), auto ? '' : `정리하지 못했습니다: ${e.message || e}`, !auto);
+    return false;
+  } finally { st.busy = false; $('tidyBtn').disabled = false; }
+}
+$('tidyBtn').onclick = async () => {
+  if (st.busy) return;
+  if (st.tidied) { renderResults(st.segs, false); setStatus($('outStatus'), ''); return; }
+  await runTidy(false);
+};
 $('allOn').onclick = () => setAll(true);
 $('allOff').onclick = () => setAll(false);
 
@@ -221,7 +254,7 @@ function download(bytes, name, type) {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 async function build(fmt) {
-  const picked = st.segs.filter((s) => s.on);
+  const picked = st.shown.filter((s) => s.on);
   if (!picked.length) { setStatus($('outStatus'), '선택된 조각이 없습니다.', true); return; }
   setStatus($('outStatus'), '만드는 중…');
   const pages = await composePages(picked.map((s) => s.canvas));

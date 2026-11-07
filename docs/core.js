@@ -141,11 +141,14 @@ class Run {
     this.stride = 1;
     this.best = rgba;
     this.bestSharp = -1;
+    this.firstRaw = rgba; // 구간의 처음/마지막 원본 프레임 (스크롤 영상에서 커서 위치로 이어 붙일 때 사용)
+    this.lastRaw = rgba;
     this.add(t, rgba, prep.sharp);
   }
 
   add(t, rgba, sharp) {
     this.tEnd = t;
+    this.lastRaw = rgba;
     if (sharp > this.bestSharp) { this.best = rgba; this.bestSharp = sharp; } // 폴백: 가장 선명한 한 장
     if (this.n % this.stride === 0) {
       this.crops.push(rgba);
@@ -242,8 +245,9 @@ export class Extractor {
       const last = merged[merged.length - 1];
       if (last && changeScore(last.small, small, this.sw, this.sh, p.pixThr) <= p.dedupeThr) {
         last.tEnd = r.tEnd;
+        last.lastRaw = r.lastRaw;
       } else {
-        merged.push({ tStart: r.tStart, tEnd: r.tEnd, rgba, small });
+        merged.push({ tStart: r.tStart, tEnd: r.tEnd, rgba, small, firstRaw: r.firstRaw, lastRaw: r.lastRaw });
       }
       if (onProgress) onProgress(++done / this.candidates.length);
       await tick();
@@ -257,7 +261,7 @@ export class Extractor {
         faded = blendRatio(merged[i - 1].small, m.small, merged[i + 1].small) < p.fadeRatio;
       }
       if (faded && !keepFaded) return;
-      out.push({ index: out.length + 1, tStart: m.tStart, tEnd: m.tEnd, image: { rgba: m.rgba, w, h }, faded });
+      out.push({ index: out.length + 1, tStart: m.tStart, tEnd: m.tEnd, image: { rgba: m.rgba, w, h }, faded, edges: { first: m.firstRaw, last: m.lastRaw } });
     });
     return out;
   }

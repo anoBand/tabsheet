@@ -1,5 +1,6 @@
 // 순수 JS 단위 테스트 (브라우저 불필요): node tests/browser/unit.mjs
 import { changeScore, blendRatio, Extractor } from '../../docs/core.js';
+import { parseTime } from '../../docs/timefmt.js';
 
 let fail = 0;
 const check = (name, ok, extra = '') => { console.log(`${ok ? 'OK  ' : 'FAIL'} ${name} ${extra}`); if (!ok) fail++; };
@@ -34,4 +35,8 @@ check('추출기: 조각 3개', segs.filter((s) => !s.faded).length === 3, JSON.
 check('추출기: 크로스페이드 1프레임은 잔상으로 제외되거나 합쳐짐', segs.filter((s) => s.faded).length <= 1);
 const none = await new Extractor({}).finish();
 check('추출기: 빈 입력', none.length === 0);
+// 시간 입력 해석
+const tcases = [['90', 90], ['90.5', 90.5], ['1:30', 90], ['1:30.5', 90.5], ['01:02:03', 3723], ['  2:05 ', 125], ['', null]];
+for (const [inp, exp] of tcases) check(`parseTime(${JSON.stringify(inp)})`, parseTime(inp) === exp, String(parseTime(inp)));
+for (const bad of ['abc', '1:75', '1::2', '-5', '1:2:3:4', '1,5']) check(`parseTime(${JSON.stringify(bad)}) 거부`, Number.isNaN(parseTime(bad)));
 process.exit(fail ? 1 : 0);
