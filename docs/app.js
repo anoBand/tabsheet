@@ -2,6 +2,7 @@
 import { Extractor, DEFAULTS } from './core.js';
 import { composePages, buildPdf } from './pdf.js';
 import { initMedia } from './media.js';
+import { tidy } from './stitch.js';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
@@ -191,10 +192,12 @@ function segCanvas(s) {
   c.getContext('2d').putImageData(new ImageData(s.image.rgba, s.image.w, s.image.h), 0, 0);
   return c;
 }
-function renderResults() {
+function renderResults(list = st.segs, tidied = false) {
   const box = $('pieces'); box.replaceChildren();
-  st.segs.forEach((s) => {
-    s.on = !s.faded;
+  st.shown = list; st.tidied = tidied;
+  $('tidyBtn').textContent = tidied ? '원본 조각 보기' : '마디 정리';
+  list.forEach((s) => {
+    s.on = tidied ? true : !s.faded;
     const fig = document.createElement('figure'); fig.className = 'piece' + (s.on ? '' : ' skip');
     const c = segCanvas(s); c.style.cssText = 'display:block;width:100%;height:auto;background:#fff';
     s.canvas = c;
@@ -203,14 +206,32 @@ function renderResults() {
     cb.onchange = () => { s.on = cb.checked; fig.classList.toggle('skip', !s.on); };
     s.cb = cb; s.fig = fig;
     const lb = document.createElement('label'); lb.htmlFor = cb.id;
-    lb.textContent = `조각 ${s.index}` + (s.faded ? ' · 페이드 잔상으로 의심되어 제외됨' : '');
+    lb.textContent = (tidied ? `줄 ${s.index}` : `조각 ${s.index}`) + (s.faded ? ' · 페이드 잔상으로 의심되어 제외됨' : '');
     const tm = document.createElement('span'); tm.className = 'time'; tm.textContent = `${fmtTime(s.tStart)} – ${fmtTime(s.tEnd)}`;
     cap.append(cb, lb, tm); fig.append(c, cap); box.append(fig);
   });
-  $('resTitle').textContent = `추출된 악보 조각 ${st.segs.filter((s) => !s.faded).length}개`;
+  $('resTitle').textContent = tidied ? `정리된 악보 ${list.length}줄` : `추출된 악보 조각 ${list.filter((s) => !s.faded).length}개`;
   $('results').hidden = false;
 }
-const setAll = (on) => st.segs.forEach((s) => { s.on = on; s.cb.checked = on; s.fig.classList.toggle('skip', !on); });
+const setAll = (on) => st.shown.forEach((s) => { s.on = on; s.cb.checked = on; s.fig.classList.toggle('skip', !on); });
+$('tidyBtn').onclick = async () => {
+  if (st.busy) return;
+  if (st.tidied) { renderResults(st.segs, false); setStatus($('outStatus'), ''); return; }
+  const picked = st.segs.filter((x) => x.on);
+  if (picked.length < 2) { setStatus($('outStatus'), '정리하려면 조각을 2개 이상 선택하세요.', true); return; }
+  st.busy = true; $('tidyBtn').disabled = true;
+  try {
+    const { rows, info } = await tidy(picked, {}, (p) => setStatus($('outStatus'), `겹침 찾는 중… ${Math.round(p * 100)}%`));
+    if (!info.links) {
+      setStatus($('outStatus'), '서로 겹치는 조각을 찾지 못해 그대로 둡니다. (화면이 통째로 바뀌는 영상이면 정상입니다)');
+    } else {
+      const list = rows.map((r, i) => ({ index: i + 1, tStart: r.tStart, tEnd: r.tEnd, image: r.image, faded: false, from: r.from }));
+      renderResults(list, true);
+      setStatus($('outStatus'), `${picked.length}조각 → ${list.length}줄 (겹침 ${info.links}곳 이어 붙임). 틀려 보이면 '원본 조각 보기'로 되돌리세요.`);
+    }
+  } catch (e) { setStatus($('outStatus'), `정리하지 못했습니다: ${e.message || e}`, true); }
+  finally { st.busy = false; $('tidyBtn').disabled = false; }
+};
 $('allOn').onclick = () => setAll(true);
 $('allOff').onclick = () => setAll(false);
 
@@ -221,7 +242,7 @@ function download(bytes, name, type) {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 async function build(fmt) {
-  const picked = st.segs.filter((s) => s.on);
+  const picked = st.shown.filter((s) => s.on);
   if (!picked.length) { setStatus($('outStatus'), '선택된 조각이 없습니다.', true); return; }
   setStatus($('outStatus'), '만드는 중…');
   const pages = await composePages(picked.map((s) => s.canvas));
