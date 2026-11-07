@@ -118,6 +118,12 @@
 <style>
   .vwrap { position: relative; overflow: hidden; line-height: 0; cursor: crosshair; touch-action: none; user-select: none; background: #111; }
   .vwrap video { width: 100%; height: auto; display: block; }
+  label.f { position: relative; }
+  .tip { display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 2px; border: 1px solid var(--ink-soft); border-radius: 50%; font: 600 10px/1 system-ui, sans-serif; font-style: normal; color: var(--ink-soft); cursor: help; vertical-align: 1px; }
+  .tip:hover, .tip:focus { background: var(--ink-soft); color: #fff; outline: none; }
+  .tip::after { content: attr(data-tip); white-space: pre-line; position: absolute; left: 0; top: calc(100% + 4px); z-index: 20; width: max(100%, 210px); max-width: 240px; padding: 8px 10px; border-radius: 6px; background: #1d2b2a; color: #fff; font: 400 12px/1.5 system-ui, sans-serif; text-align: left; box-shadow: 0 4px 14px rgba(0,0,0,.25); opacity: 0; visibility: hidden; transition: opacity .12s; pointer-events: none; }
+  .tip:hover::after, .tip:focus::after { opacity: 1; visibility: visible; }
+  .grid2 > label.f:nth-child(even) .tip::after { left: auto; right: 0; }
   .privacy { margin: 0; padding: 10px 16px; font-size: 13px; color: var(--ink-soft); border-top: 1px solid var(--rule); background: #f7faf9; }
   .results .resbar { position: sticky; top: 0; z-index: 5; display: flex; background: var(--sheet); padding: 8px 0; margin-bottom: 8px; border-bottom: 1px solid var(--rule); }
   .results .resbar .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -178,20 +184,20 @@
     <section class="step off" id="s3">
       <h2><span class="n">3</span>악보 추출</h2>
       <div class="grid2">
-        <label class="f">시작(초)<input id="pStart" type="number" min="0" step="0.5" value="0"></label>
-        <label class="f">끝(초, 비우면 끝까지)<input id="pEnd" type="number" min="0" step="0.5"></label>
+        <label class="f">시작 (초 또는 분:초)<input id="pStart" type="text" inputmode="decimal" autocomplete="off" placeholder="0 · 1:30"></label>
+        <label class="f">끝 (비우면 끝까지)<input id="pEnd" type="text" inputmode="decimal" autocomplete="off" placeholder="90 · 3:20"></label>
       </div>
       <details>
         <summary>세부 설정</summary>
         <div class="grid2">
-          <label class="f">샘플 간격(초)<input id="pInterval" type="number" min="0.1" max="10" step="0.05" value="0.5"></label>
-          <label class="f">최소 연속 샘플<input id="pMinRun" type="number" min="1" step="1" value="2"></label>
-          <label class="f">같은 악보로 볼 기준<input id="pStable" type="number" min="0" max="1" step="0.01" value="0.10"></label>
-          <label class="f">느린 페이드 기준<input id="pAnchor" type="number" min="0" max="1" step="0.01" value="0.20"></label>
-          <label class="f">중복 병합 기준<input id="pDedupe" type="number" min="0" max="1" step="0.01" value="0.05"></label>
-          <label class="f">페이드 잔상 판정(0이면 끔)<input id="pFade" type="number" min="0" max="2" step="0.05" value="0.75"></label>
+          <label class="f"><span>샘플 간격(초) <i class="tip" tabindex="0" role="img" aria-label="높음: 빨리 끝나지만 짧게 나오는 악보를 놓칠 수 있음 / 낮음: 꼼꼼하지만 오래 걸림" data-tip="높음: 빨리 끝나지만 짧게 나오는 악보를 놓칠 수 있음&#10;낮음: 꼼꼼하지만 오래 걸림">?</i></span><input id="pInterval" type="number" min="0.1" max="10" step="0.05" value="0.5"></label>
+          <label class="f"><span>최소 연속 샘플 <i class="tip" tabindex="0" role="img" aria-label="높음: 잡음엔 강하지만 짧게 보이는 악보가 빠짐 / 낮음: 짧은 악보도 잡지만 전환 중 화면이 섞일 수 있음" data-tip="높음: 잡음엔 강하지만 짧게 보이는 악보가 빠짐&#10;낮음: 짧은 악보도 잡지만 전환 중 화면이 섞일 수 있음">?</i></span><input id="pMinRun" type="number" min="1" step="1" value="2"></label>
+          <label class="f"><span>같은 악보로 볼 기준 <i class="tip" tabindex="0" role="img" aria-label="높음: 다른 악보가 하나로 합쳐질 수 있음 / 낮음: 같은 악보가 여러 조각으로 쪼개질 수 있음" data-tip="높음: 다른 악보가 하나로 합쳐질 수 있음&#10;낮음: 같은 악보가 여러 조각으로 쪼개질 수 있음">?</i></span><input id="pStable" type="number" min="0" max="1" step="0.01" value="0.10"></label>
+          <label class="f"><span>느린 페이드 기준 <i class="tip" tabindex="0" role="img" aria-label="높음: 커서가 커도 안 쪼개지지만 천천히 바뀌는 화면이 섞일 수 있음 / 낮음: 화면 변화에 민감하게 새 조각으로 나눔" data-tip="높음: 커서가 커도 안 쪼개지지만 천천히 바뀌는 화면이 섞일 수 있음&#10;낮음: 화면 변화에 민감하게 새 조각으로 나눔">?</i></span><input id="pAnchor" type="number" min="0" max="1" step="0.01" value="0.20"></label>
+          <label class="f"><span>중복 병합 기준 <i class="tip" tabindex="0" role="img" aria-label="높음: 비슷한 다른 악보까지 합쳐짐 / 낮음: 같은 악보가 중복으로 남을 수 있음" data-tip="높음: 비슷한 다른 악보까지 합쳐짐&#10;낮음: 같은 악보가 중복으로 남을 수 있음">?</i></span><input id="pDedupe" type="number" min="0" max="1" step="0.01" value="0.05"></label>
+          <label class="f"><span>페이드 잔상 판정(0이면 끔) <i class="tip" tabindex="0" role="img" aria-label="높음: 잔상을 더 많이 걸러내지만 정상 페이지도 제외될 수 있음 / 낮음: 정상 페이지는 지키지만 잔상이 섞일 수 있음 (0은 판정 끔)" data-tip="높음: 잔상을 더 많이 걸러내지만 정상 페이지도 제외될 수 있음&#10;낮음: 정상 페이지는 지키지만 잔상이 섞일 수 있음 (0은 판정 끔)">?</i></span><input id="pFade" type="number" min="0" max="2" step="0.05" value="0.75"></label>
         </div>
-        <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input id="pMedian" type="checkbox" checked> 커서·하이라이트 지우기</label>
+        <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input id="pMedian" type="checkbox" checked> 커서·하이라이트 지우기 <i class="tip" tabindex="0" role="img" aria-label="켜면 움직이는 커서를 지우고, 끄면 가장 선명한 한 장을 씀" data-tip="켜면 움직이는 커서를 지움&#10;끄면 구간에서 가장 선명한 한 장을 그대로 씀">?</i></label>
       </details>
       <div class="stack">
         <button class="btn" id="run" type="button" disabled>악보 추출</button>

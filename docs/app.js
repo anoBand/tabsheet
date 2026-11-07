@@ -3,6 +3,7 @@ import { Extractor, DEFAULTS } from './core.js';
 import { composePages, buildPdf } from './pdf.js';
 import { initMedia } from './media.js';
 import { tidy, looksLikeScroll } from './stitch.js';
+import { parseTime } from './timefmt.js';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
@@ -138,9 +139,11 @@ function paramsFromForm() {
 async function run() {
   if (!st.bbox || st.busy) return;
   const params = paramsFromForm();
-  const start = Math.max(0, parseFloat($('pStart').value) || 0);
-  const endV = parseFloat($('pEnd').value);
-  const end = endV > 0 ? Math.min(endV, video.duration) : video.duration;
+  const startV = parseTime($('pStart').value), endV = parseTime($('pEnd').value);
+  if (Number.isNaN(startV) || Number.isNaN(endV)) { setStatus($('runStatus'), '시작/끝은 90, 1:30, 1:02:03 같은 형식으로 입력하세요.', true); return; }
+  const start = Math.min(startV ?? 0, Math.max(0, video.duration - 0.1));
+  const end = endV != null && endV > start ? Math.min(endV, video.duration) : video.duration;
+  if (endV != null && endV <= start) { setStatus($('runStatus'), '끝 시간은 시작 시간보다 커야 합니다.', true); return; }
   const ex = new Extractor(params);
   const { x, y, w, h } = st.bbox;
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;

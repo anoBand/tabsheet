@@ -44,15 +44,15 @@ check('자동 적용 판정: 링크가 1개뿐이면 false', !looksLikeScroll({ 
 // 줄 모양: 가운데 정렬(좌우 여백이 비슷), 코드명 띠는 끝에서 잘린 글자가 없고 시작에서 온전함
 const inkBand = (img, x) => { for (let y = 2; y < 13; y++) if (img.rgba[(y * img.w + x) * 4] < 120) return true; return false; };
 const inkBody = (img, x) => { for (let y = 50; y < 110; y++) if (img.rgba[(y * img.w + x) * 4] < 120) return true; return false; };
-let centered = true, labelsOk = true;
+let leftAligned = true, labelsOk = true, firstL = null;
 rows.forEach((r, i) => {
   const img = r.image; let l = 0; while (l < img.w && !inkBody(img, l)) l++; let rr = img.w - 1; while (rr > 0 && !inkBody(img, rr)) rr--;
-  if (i < rows.length - 1 && i > 0 && Math.abs(l - (img.w - 1 - rr)) > 3) centered = false;
+  if (firstL === null) firstL = l; else if (Math.abs(l - firstL) > 1 && i < rows.length - 1) leftAligned = false; // 모든 줄의 왼쪽 시작 위치가 같아야 함
   if (i > 0 && i < rows.length - 1) {
     if (inkBand(img, rr - 6)) labelsOk = false;                                  // 오른쪽 끝에 잘린 코드명이 없어야 함
     if (!inkBand(img, l + 6)) labelsOk = false;                                  // 왼쪽 시작의 코드명(마디선보다 왼쪽에서 시작)이 온전히 있어야 함
   }
 });
-check('줄이 가운데 정렬됨', centered);
+check('모든 줄이 왼쪽 정렬', leftAligned, `첫 줄 왼쪽 여백 ${firstL}`);
 check('코드명이 줄 경계에서 잘리지 않음', labelsOk);
 process.exit(fail ? 1 : 0);

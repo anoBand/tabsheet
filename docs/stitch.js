@@ -204,7 +204,7 @@ function bgColor(strip) {
 }
 
 /** 한 줄을 만든다. 본문은 마디선(-4 ~ +4)까지, 코드명 띠(악보 위쪽)는 왼쪽으로 LABEL_LEAD만큼 더 넓게 가져오고
- *  오른쪽 끝에서는 다음 마디의 코드명이 잘려 보이지 않도록 LABEL_TAIL만큼 비운다. 줄은 가운데 정렬한다. */
+ *  오른쪽 끝에서는 다음 마디의 코드명이 잘려 보이지 않도록 LABEL_TAIL만큼 비운다. 줄은 항상 왼쪽 정렬한다. */
 function cropRow(strip, r, outW, bg, labelBottom) {
   const { rgba, w, h } = strip;
   const first = r.x === 0, last = r.e == null;
@@ -213,7 +213,7 @@ function cropRow(strip, r, outW, bg, labelBottom) {
   const bodyW = bodyB - bodyA;
   const out = new Uint8ClampedArray(outW * h * 4);
   for (let i = 0; i < out.length; i += 4) { out[i] = bg[0]; out[i + 1] = bg[1]; out[i + 2] = bg[2]; out[i + 3] = 255; }
-  const pad0 = Math.max(0, Math.floor((outW - bodyW) / 2)), pad = first ? pad0 : Math.max(pad0, LABEL_LEAD); // 본문(마디선~마디선)을 가운데에 둔다
+  const pad = LABEL_LEAD + (first ? 4 : 0); // 모든 줄의 첫 마디선이 같은 x에 오도록 (코드명 띠의 왼쪽 여유 + 첫 줄은 마디선 앞 4px 몫)
   for (let y = 0; y < h; y++) {
     const [a, b] = y < labelBottom ? [bandA, bandB] : [bodyA, bodyB];
     if (b <= a) continue;
