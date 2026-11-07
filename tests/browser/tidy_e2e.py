@@ -17,19 +17,21 @@ with sync_playwright() as p:
         pg.set_input_files("#file", c["video"]); pg.wait_for_function("document.getElementById('video').videoWidth>0")
         pg.evaluate(f"window.__tabsheet.setBBox({','.join(map(str, c['bbox']))})"); pg.click("#run")
         pg.wait_for_function("document.getElementById('runStatus').textContent.startsWith('완료')", timeout=900000)
+        pg.wait_for_function("!window.__tabsheet.st.busy", timeout=120000)   # 추출 직후 자동 정리까지 끝날 때까지
         raw = pg.evaluate("window.__tabsheet.st.segs.filter(s => !s.faded).length")
-        pg.click("#tidyBtn"); pg.wait_for_function("!document.getElementById('tidyBtn').disabled && /줄|겹치는/.test(document.getElementById('outStatus').textContent)", timeout=120000)
         tidied = pg.evaluate("window.__tabsheet.st.tidied"); n = pg.evaluate("window.__tabsheet.st.shown.length")
         msg = pg.inner_text("#outStatus")
         good = (n == c["rows"] and tidied) if c["rows"] else (not tidied and n == pg.evaluate("window.__tabsheet.st.segs.length"))
-        print(f"[{c['name']}] 조각 {raw} -> {'정리 ' + str(n) + '줄' if tidied else '그대로'} (기대 {c['rows'] or '겹침 없음'}) {'OK' if good else 'FAIL'} | {msg} | 오류 {errs}")
+        print(f"[{c['name']}] 조각 {raw} -> {'자동 정리 ' + str(n) + '줄' if tidied else '그대로'} (기대 {c['rows'] or '겹침 없음'}) {'OK' if good else 'FAIL'} | {msg} | 오류 {errs}")
         ok &= bool(good) and not errs
         if tidied:
             pg.screenshot(path=str(out / f"{c['name']}_tidy.png"), full_page=True)
             with pg.expect_download() as d: pg.click("#mkPdf")
             d.value.save_as(str(out / f"{c['name']}_tidy.pdf"))
             pg.click("#tidyBtn"); back = pg.evaluate("window.__tabsheet.st.shown.length === window.__tabsheet.st.segs.length && !window.__tabsheet.st.tidied")
-            print("   되돌리기:", "OK" if back else "FAIL"); ok &= back
+            pg.click("#tidyBtn"); pg.wait_for_function("window.__tabsheet.st.tidied", timeout=60000)
+            again = pg.evaluate("window.__tabsheet.st.shown.length") == c["rows"]
+            print("   되돌리기/다시 정리:", "OK" if back and again else "FAIL"); ok &= back and again
         pg.close()
     b.close()
 print("ALL OK" if ok else "FAILED"); sys.exit(0 if ok else 1)

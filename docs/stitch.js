@@ -13,10 +13,14 @@ export const STITCH_DEFAULTS = {
   strongThr: 60,      // 밝기 차이가 이 값보다 크면 '확실히 다른 픽셀'
   ratioStrict: 0.15,  // 단독으로 확정하려면 (다른 픽셀 수 / 잉크 픽셀 수)가 이 이하여야 함
   uniqueFactor: 3,    // 단독 확정 시 2등 후보(다른 이동량)보다 이 배수 이상 좋아야 함
+  ratioNoPrior: 0.05, // 일정한 이동량(기준)이 없을 때는 이 이하로 아주 잘 맞는 쌍만 인정
   ratioPrior: 0.6,    // 다른 쌍들의 일정한 이동량 근처 후보를 받아들이는 상한
   candidates: 10,     // 열 분포에서 뽑는 후보 수
   barFrac: 0.85,      // 마디선: 악보선 구간 높이의 이 비율 이상이 어두운 열
 };
+
+// 코드명(Bsus2/F# 등)은 마디선보다 조금 왼쪽에서 시작하는 경우가 있어, 다음 줄의 코드명이 잘리지 않도록 코드명 띠에만 왼쪽 여유를 둔다.
+const LABEL_LEAD = 18, LABEL_TAIL = 14, LABEL_GAP = 16;
 
 const tick = () => new Promise((r) => {
   const c = new MessageChannel();
@@ -126,7 +130,7 @@ export async function estimateShifts(images, opts = {}, onProgress) {
       const near = cs.filter((c) => Math.abs(c.shift - prior) <= tol && c.ratio <= o.ratioPrior);
       if (near.length) pick = near.reduce((p, c) => (c.ratio < p.ratio ? c : p));
     }
-    if (!pick) pick = standsAlone(cs, o);
+    if (!pick) { pick = standsAlone(cs, o); if (pick && prior == null && pick.ratio > o.ratioNoPrior) pick = null; }
     return pick ? pick.shift : null;
   });
   return { shifts, prior, pairs };
@@ -163,7 +167,7 @@ export function findBarlines(strip, o = STITCH_DEFAULTS) {
   if (rows.length < 3) return null;
   const groups = [[rows[0]]];
   for (let k = 1; k < rows.length; k++) (rows[k] - groups[groups.length - 1].at(-1) <= 28 ? groups[groups.length - 1].push(rows[k]) : groups.push([rows[k]]));
-  const tab = groups.at(-1), r0 = tab[0], r1 = tab.at(-1);
+  const tab = groups.at(-1), r0 = tab[0], r1 = tab.at(-1), staffTop = groups[0][0];
   if (r1 - r0 < 20) return null;
   const bars = []; let cluster = [];
   for (let x = 0; x < w; x++) {
@@ -174,20 +178,21 @@ export function findBarlines(strip, o = STITCH_DEFAULTS) {
     }
   }
   if (cluster.length) bars.push(Math.round(cluster.reduce((a, b) => a + b, 0) / cluster.length));
-  return { bars, r0, r1 };
+  return { bars, r0, r1, staffTop };
 }
 
-/** 마디선 위치만 사용해 줄 구간 [시작, 끝)을 정한다. 한 줄의 폭은 maxW 이하. */
+/** 마디선 위치만 사용해 줄을 정한다. 한 줄의 폭(왼쪽 여유 포함)은 maxW 이하.
+ *  반환: [{x: 시작 마디선(첫 줄은 0), e: 끝 마디선(마지막 줄은 null), hard: 마디선이 없어 억지로 자른 줄}] */
 export function reflow(totalW, bars, maxW, minFrac = 0.25) {
   const out = []; let x = 0;
   const sorted = [...bars].sort((a, b) => a - b);
   while (x < totalW - 1) {
-    const lim = x + maxW - 8;
-    if (lim >= totalW) { out.push([Math.max(0, x - 4), totalW]); break; }
+    const lim = x + maxW - 2 * LABEL_LEAD - 8;   // 본문을 가운데 둬도 코드명 띠(왼쪽으로 LABEL_LEAD 더 넓음)가 캔버스를 벗어나지 않게
+    if (lim >= totalW) { out.push({ x, e: null, hard: false }); break; }
     const cand = sorted.filter((b) => b > x + minFrac * maxW && b <= lim);
-    if (!cand.length) { out.push([Math.max(0, x - 4), x + maxW]); x += maxW; continue; } // 마디선이 없으면 그냥 자름
+    if (!cand.length) { out.push({ x, e: lim, hard: true }); x = lim; continue; } // 마디선이 없으면 그냥 자름
     const e = cand.at(-1);
-    out.push([Math.max(0, x - 4), e + 4]); x = e;
+    out.push({ x, e, hard: false }); x = e;
   }
   return out;
 }
@@ -198,12 +203,30 @@ function bgColor(strip) {
   return vals.map((v) => Math.round(median(v)));
 }
 
-function cropRow(strip, a, b, outW, bg) {
-  const { rgba, w, h } = strip, out = new Uint8ClampedArray(outW * h * 4);
+/** 한 줄을 만든다. 본문은 마디선(-4 ~ +4)까지, 코드명 띠(악보 위쪽)는 왼쪽으로 LABEL_LEAD만큼 더 넓게 가져오고
+ *  오른쪽 끝에서는 다음 마디의 코드명이 잘려 보이지 않도록 LABEL_TAIL만큼 비운다. 줄은 가운데 정렬한다. */
+function cropRow(strip, r, outW, bg, labelBottom) {
+  const { rgba, w, h } = strip;
+  const first = r.x === 0, last = r.e == null;
+  const bodyA = first ? 0 : r.x - 4, bodyB = last ? w : r.e + 4;
+  const bandA = first ? 0 : r.x - LABEL_LEAD, bandB = last || r.hard ? bodyB : r.e - LABEL_TAIL;
+  const bodyW = bodyB - bodyA;
+  const out = new Uint8ClampedArray(outW * h * 4);
   for (let i = 0; i < out.length; i += 4) { out[i] = bg[0]; out[i + 1] = bg[1]; out[i + 2] = bg[2]; out[i + 3] = 255; }
-  const len = Math.min(b, w) - a;
-  for (let y = 0; y < h; y++) out.set(rgba.subarray((y * w + a) * 4, (y * w + a + len) * 4), y * outW * 4);
-  return out;
+  const pad0 = Math.max(0, Math.floor((outW - bodyW) / 2)), pad = first ? pad0 : Math.max(pad0, LABEL_LEAD); // 본문(마디선~마디선)을 가운데에 둔다
+  for (let y = 0; y < h; y++) {
+    const [a, b] = y < labelBottom ? [bandA, bandB] : [bodyA, bodyB];
+    if (b <= a) continue;
+    const src = (y * w + a) * 4, dst = (y * outW + pad + (a - bodyA)) * 4;
+    out.set(rgba.subarray(src, src + (b - a) * 4), dst);
+  }
+  return { rgba: out, pad };
+}
+
+/** 자동 적용해도 안전한 결과인가: 페이지를 넘기는 거리가 일정한 '스크롤형' 영상일 때만 true.
+ *  페이드/컷으로 페이지가 통째로 바뀌는 영상에서 우연한 겹침으로 마디를 잃지 않도록 하는 안전장치. */
+export function looksLikeScroll(info, nSegs) {
+  return info.prior != null && info.links >= 2 && info.links >= 0.6 * (nSegs - 1);
 }
 
 /** 전체 정리. segs: [{image:{rgba,w,h}, tStart, tEnd}] (시간 순, 사용할 조각만).
@@ -237,10 +260,12 @@ export async function tidy(segs, opts = {}, onProgress) {
     info.groups++; info.links += gp.length - 1;
     const w = imgs[0].w, bg = bgColor(strip);
     await tick();
-    for (const [a, b] of reflow(strip.w, bl.bars, w)) {
+    const labelBottom = Math.max(0, bl.staffTop - LABEL_GAP);
+    for (const r of reflow(strip.w, bl.bars, w)) {
+      const a = r.x, b = r.e == null ? strip.w : r.e;
       const covered = gp.filter((_, k) => strip.offs[k] < b && strip.offs[k] + w > a);
       rows.push({
-        image: { rgba: cropRow(strip, a, b, w, bg), w, h: strip.h },
+        image: { rgba: cropRow(strip, r, w, bg, labelBottom).rgba, w, h: strip.h },
         tStart: segs[covered[0]].tStart, tEnd: segs[covered.at(-1)].tEnd, from: covered, stitched: true,
       });
     }

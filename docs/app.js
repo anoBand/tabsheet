@@ -2,7 +2,7 @@
 import { Extractor, DEFAULTS } from './core.js';
 import { composePages, buildPdf } from './pdf.js';
 import { initMedia } from './media.js';
-import { tidy } from './stitch.js';
+import { tidy, looksLikeScroll } from './stitch.js';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
@@ -175,6 +175,8 @@ async function run() {
     setStatus($('runStatus'), `완료: ${st.segs.filter((s) => !s.faded).length}개 조각 (${sec}초 걸림)`);
     st.seconds = +sec;
     renderResults();
+    st.busy = false;
+    await runTidy(true); // 스크롤형 영상이면 겹침을 자동으로 정리 (확실하지 않으면 그대로 둠)
   } catch (e) {
     setStatus($('runStatus'), String(e.message || e), true);
   } finally {
@@ -214,23 +216,30 @@ function renderResults(list = st.segs, tidied = false) {
   $('results').hidden = false;
 }
 const setAll = (on) => st.shown.forEach((s) => { s.on = on; s.cb.checked = on; s.fig.classList.toggle('skip', !on); });
-$('tidyBtn').onclick = async () => {
-  if (st.busy) return;
-  if (st.tidied) { renderResults(st.segs, false); setStatus($('outStatus'), ''); return; }
-  const picked = st.segs.filter((x) => x.on);
-  if (picked.length < 2) { setStatus($('outStatus'), '정리하려면 조각을 2개 이상 선택하세요.', true); return; }
+/** 겹침 정리. auto=true(추출 직후 자동)면 스크롤형 영상으로 확실할 때만 적용하고, 아니면 아무것도 바꾸지 않는다. */
+async function runTidy(auto) {
+  const picked = st.segs.filter((x) => x.on !== false && !x.faded);
+  if (picked.length < 2) { if (!auto) setStatus($('outStatus'), '정리하려면 조각을 2개 이상 선택하세요.', true); return false; }
   st.busy = true; $('tidyBtn').disabled = true;
   try {
     const { rows, info } = await tidy(picked, {}, (p) => setStatus($('outStatus'), `겹침 찾는 중… ${Math.round(p * 100)}%`));
-    if (!info.links) {
-      setStatus($('outStatus'), '서로 겹치는 조각을 찾지 못해 그대로 둡니다. (화면이 통째로 바뀌는 영상이면 정상입니다)');
-    } else {
-      const list = rows.map((r, i) => ({ index: i + 1, tStart: r.tStart, tEnd: r.tEnd, image: r.image, faded: false, from: r.from }));
-      renderResults(list, true);
-      setStatus($('outStatus'), `${picked.length}조각 → ${list.length}줄 (겹침 ${info.links}곳 이어 붙임). 틀려 보이면 '원본 조각 보기'로 되돌리세요.`);
+    if (auto ? !looksLikeScroll(info, picked.length) : !info.links) {
+      setStatus($('outStatus'), auto ? '' : '서로 겹치는 조각을 찾지 못해 그대로 둡니다. (화면이 통째로 바뀌는 영상이면 정상입니다)');
+      return false;
     }
-  } catch (e) { setStatus($('outStatus'), `정리하지 못했습니다: ${e.message || e}`, true); }
-  finally { st.busy = false; $('tidyBtn').disabled = false; }
+    const list = rows.map((r, i) => ({ index: i + 1, tStart: r.tStart, tEnd: r.tEnd, image: r.image, faded: false, from: r.from }));
+    renderResults(list, true);
+    setStatus($('outStatus'), `${picked.length}조각 → ${list.length}줄로 자동 정리했습니다 (겹침 ${info.links}곳). 틀려 보이면 '원본 조각 보기'로 되돌리세요.`);
+    return true;
+  } catch (e) {
+    setStatus($('outStatus'), auto ? '' : `정리하지 못했습니다: ${e.message || e}`, !auto);
+    return false;
+  } finally { st.busy = false; $('tidyBtn').disabled = false; }
+}
+$('tidyBtn').onclick = async () => {
+  if (st.busy) return;
+  if (st.tidied) { renderResults(st.segs, false); setStatus($('outStatus'), ''); return; }
+  await runTidy(false);
 };
 $('allOn').onclick = () => setAll(true);
 $('allOff').onclick = () => setAll(false);
