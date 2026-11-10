@@ -16,6 +16,8 @@ for (let m = 0; m < N; m++) {
   riff.forEach(([dx, y], k) => { const x = m * MEASURE + 12 + ((k + (m % 2) * 5) * 24) % 280; for (let a = 0; a < 7; a++) for (let b = 0; b < 7; b++) put(x + a, y - 3 + b, 30); });
   // 코드명 대용: 마디선보다 8픽셀 왼쪽에서 시작해 오른쪽으로 긴 표식 (줄 나눌 때 잘리면 안 됨)
   for (let a = -8; a < 36; a++) for (let b = 0; b < 6; b++) if (m * MEASURE + a >= 0) put(m * MEASURE + a, 6 + b, 50);
+  // 마디 번호 대용: 첫 악보선 바로 위, 마디선에 걸쳐 있음 (마디선 -5 ~ +6). 줄을 나눌 때 반쪽만 남으면 안 됨
+  for (let a = -5; a <= 6; a++) for (let b = 19; b <= 26; b++) if (m * MEASURE + a >= 0 && (a + b) % 3) put(m * MEASURE + a, b, 60);
   // 마디 번호·코드명 대용: 마디마다 다른 모양의 표식 (실제 악보에서 반복 마디를 구별해 주는 유일한 단서)
   let r = (m + 1) * 2654435761 >>> 0; const nr = () => ((r = (r * 1664525 + 1013904223) >>> 0) / 2 ** 32);
   for (let k = 0; k < 5; k++) { const bx = m * MEASURE + 8 + Math.floor(nr() * 250), by = 6 + Math.floor(nr() * 14); for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++) if (nr() > 0.35) put(bx + a, by + b, 50); }
@@ -55,4 +57,14 @@ rows.forEach((r, i) => {
 });
 check('모든 줄이 왼쪽 정렬', leftAligned, `첫 줄 왼쪽 여백 ${firstL}`);
 check('코드명이 줄 경계에서 잘리지 않음', labelsOk);
+// 마디 번호: 각 줄 시작에는 온전히(마디선 왼쪽 부분까지), 끝에는 다음 마디 번호가 조금도 남지 않아야 함
+const inkNum = (img, x) => { for (let y = 19; y <= 26; y++) if (img.rgba[(y * img.w + x) * 4] < 120) return true; return false; };
+let numStart = true, numEnd = true;
+rows.forEach((r, i) => {
+  const img = r.image; let l = 0; while (l < img.w && !inkBody(img, l)) l++; let rr = img.w - 1; while (rr > 0 && !inkBody(img, rr)) rr--;
+  if (i > 0 && !(inkNum(img, l - 5) && inkNum(img, l + 6))) numStart = false;
+  if (i < rows.length - 1) for (let x = rr - 14; x <= Math.min(img.w - 1, rr + 8); x++) if (inkNum(img, x)) numEnd = false;
+});
+check('마디 번호: 줄 시작에서 온전함', numStart);
+check('마디 번호: 줄 끝에 반쪽 번호 없음', numEnd);
 process.exit(fail ? 1 : 0);

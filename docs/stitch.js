@@ -20,7 +20,10 @@ export const STITCH_DEFAULTS = {
 };
 
 // 코드명(Bsus2/F# 등)은 마디선보다 조금 왼쪽에서 시작하는 경우가 있어, 다음 줄의 코드명이 잘리지 않도록 코드명 띠에만 왼쪽 여유를 둔다.
-const LABEL_LEAD = 18, LABEL_TAIL = 14, LABEL_GAP = 16;
+// 악보선 위쪽 띠(마디 번호·코드명)는 마디선에 걸쳐 있어서 마디선에서 자르면 글자가 반으로 잘린다.
+// 그래서 위쪽 띠는 마디선 근처의 '비어 있는 세로 틈'에서 자른다: 걸친 글자는 통째로 다음 줄로 간다.
+const LABEL_LEAD = 28;   // 위쪽 띠를 마디선보다 왼쪽으로 최대 얼마나 더 가져올지 (1280px 기준, 줄 왼쪽 여백도 이만큼)
+const GAP_MIN = 3;       // 이만큼 연속으로 빈 열이면 글자 사이 틈으로 본다
 
 const tick = () => new Promise((r) => {
   const c = new MessageChannel();
@@ -183,11 +186,11 @@ export function findBarlines(strip, o = STITCH_DEFAULTS) {
 
 /** 마디선 위치만 사용해 줄을 정한다. 한 줄의 폭(왼쪽 여유 포함)은 maxW 이하.
  *  반환: [{x: 시작 마디선(첫 줄은 0), e: 끝 마디선(마지막 줄은 null), hard: 마디선이 없어 억지로 자른 줄}] */
-export function reflow(totalW, bars, maxW, minFrac = 0.25) {
+export function reflow(totalW, bars, maxW, minFrac = 0.25, lead = LABEL_LEAD) {
   const out = []; let x = 0;
   const sorted = [...bars].sort((a, b) => a - b);
   while (x < totalW - 1) {
-    const lim = x + maxW - 2 * LABEL_LEAD - 8;   // 본문을 가운데 둬도 코드명 띠(왼쪽으로 LABEL_LEAD 더 넓음)가 캔버스를 벗어나지 않게
+    const lim = x + maxW - lead - 12;   // 왼쪽 여백(lead, 첫 줄은 +4)과 끝 마디선 뒤 4px까지 캔버스 안에 들어가게
     if (lim >= totalW) { out.push({ x, e: null, hard: false }); break; }
     const cand = sorted.filter((b) => b > x + minFrac * maxW && b <= lim);
     if (!cand.length) { out.push({ x, e: lim, hard: true }); x = lim; continue; } // 마디선이 없으면 그냥 자름
@@ -203,17 +206,37 @@ function bgColor(strip) {
   return vals.map((v) => Math.round(median(v)));
 }
 
-/** 한 줄을 만든다. 본문은 마디선(-4 ~ +4)까지, 코드명 띠(악보 위쪽)는 왼쪽으로 LABEL_LEAD만큼 더 넓게 가져오고
- *  오른쪽 끝에서는 다음 마디의 코드명이 잘려 보이지 않도록 LABEL_TAIL만큼 비운다. 줄은 항상 왼쪽 정렬한다. */
-function cropRow(strip, r, outW, bg, labelBottom) {
+/** 위쪽 띠(y < bandBottom)의 자를 위치. 마디선 b의 오른쪽(+4)에서 왼쪽으로 lead 픽셀 안에서 처음 나오는 빈 틈.
+ *  앞 줄은 여기까지, 다음 줄은 여기부터 가져가므로 글자가 반쪽씩 나뉘지도, 두 번 나오지도 않는다. 틈이 없으면 b-4(본문과 같음). */
+export function bandCuts(strip, bars, bandBottom, bgGray, lead) {
+  const { rgba, w } = strip;
+  const ink = new Uint8Array(w);
+  for (let y = 0; y < bandBottom; y++) for (let x = 0, i = y * w * 4; x < w; x++, i += 4) {
+    if (!ink[x] && (rgba[i] * 4899 + rgba[i + 1] * 9617 + rgba[i + 2] * 1868 + 8192) >> 14 < bgGray - 25) ink[x] = 1;
+  }
+  const cuts = new Map();
+  for (const b of bars) {
+    let cut = b - 4;
+    for (let c = Math.min(w - 1, b + 4); c - GAP_MIN + 1 >= Math.max(0, b - lead); c--) {
+      let blank = true; for (let k = 0; k < GAP_MIN; k++) if (ink[c - k]) { blank = false; break; }
+      if (blank) { cut = c - 1; break; }  // 틈 안쪽에서 자름
+    }
+    cuts.set(b, cut);
+  }
+  return cuts;
+}
+
+/** 한 줄을 만든다. 본문은 마디선(-4 ~ +4)까지, 위쪽 띠(마디 번호·코드명)는 bandCuts가 정한 빈 틈에서 자른다.
+ *  줄은 항상 왼쪽 정렬하고, 모든 줄의 첫 마디선이 같은 x에 온다. */
+function cropRow(strip, r, outW, bg, labelBottom, cuts, lead) {
   const { rgba, w, h } = strip;
   const first = r.x === 0, last = r.e == null;
   const bodyA = first ? 0 : r.x - 4, bodyB = last ? w : r.e + 4;
-  const bandA = first ? 0 : r.x - LABEL_LEAD, bandB = last || r.hard ? bodyB : r.e - LABEL_TAIL;
+  const bandA = first ? 0 : cuts.get(r.x) ?? bodyA, bandB = last || r.hard ? bodyB : cuts.get(r.e) ?? bodyB;
   const bodyW = bodyB - bodyA;
   const out = new Uint8ClampedArray(outW * h * 4);
   for (let i = 0; i < out.length; i += 4) { out[i] = bg[0]; out[i + 1] = bg[1]; out[i + 2] = bg[2]; out[i + 3] = 255; }
-  const pad = LABEL_LEAD + (first ? 4 : 0); // 모든 줄의 첫 마디선이 같은 x에 오도록 (코드명 띠의 왼쪽 여유 + 첫 줄은 마디선 앞 4px 몫)
+  const pad = lead + (first ? 4 : 0); // 모든 줄의 첫 마디선이 같은 x에 오도록 (위쪽 띠의 왼쪽 여유 + 첫 줄은 마디선 앞 4px 몫)
   for (let y = 0; y < h; y++) {
     const [a, b] = y < labelBottom ? [bandA, bandB] : [bodyA, bodyB];
     if (b <= a) continue;
@@ -260,12 +283,15 @@ export async function tidy(segs, opts = {}, onProgress) {
     info.groups++; info.links += gp.length - 1;
     const w = imgs[0].w, bg = bgColor(strip);
     await tick();
-    const labelBottom = Math.max(0, bl.staffTop - LABEL_GAP);
-    for (const r of reflow(strip.w, bl.bars, w)) {
+    const labelBottom = Math.max(0, bl.staffTop - 1);             // 첫 악보선 바로 위까지가 위쪽 띠
+    const lead = Math.round(LABEL_LEAD * Math.max(1, w / 1280));   // 고해상도 영상은 글자도 크다
+    const gray = Math.round((bg[0] * 4899 + bg[1] * 9617 + bg[2] * 1868) / 16384);
+    const cuts = bandCuts(strip, bl.bars, labelBottom, gray, lead);
+    for (const r of reflow(strip.w, bl.bars, w, 0.25, lead)) {
       const a = r.x, b = r.e == null ? strip.w : r.e;
       const covered = gp.filter((_, k) => strip.offs[k] < b && strip.offs[k] + w > a);
       rows.push({
-        image: { rgba: cropRow(strip, r, w, bg, labelBottom).rgba, w, h: strip.h },
+        image: { rgba: cropRow(strip, r, w, bg, labelBottom, cuts, lead).rgba, w, h: strip.h },
         tStart: segs[covered[0]].tStart, tEnd: segs[covered.at(-1)].tEnd, from: covered, stitched: true,
       });
     }
