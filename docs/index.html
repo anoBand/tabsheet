@@ -120,9 +120,10 @@
   .vwrap video { width: 100%; height: auto; display: block; }
   label.f { position: relative; }
   .tip { display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 2px; border: 1px solid var(--ink-soft); border-radius: 50%; font: 600 10px/1 system-ui, sans-serif; font-style: normal; color: var(--ink-soft); cursor: help; vertical-align: 1px; }
-  .tip:hover, .tip:focus { background: var(--ink-soft); color: #fff; outline: none; }
+  .tip:focus { background: var(--ink-soft); color: #fff; outline: none; }
+  @media (hover: hover) { .tip:hover { background: var(--ink-soft); color: #fff; } .tip:hover::after { opacity: 1; visibility: visible; } }
   .tip::after { content: attr(data-tip); white-space: pre-line; position: absolute; left: 0; top: calc(100% + 4px); z-index: 20; width: max(100%, 210px); max-width: 240px; padding: 8px 10px; border-radius: 6px; background: #1d2b2a; color: #fff; font: 400 12px/1.5 system-ui, sans-serif; text-align: left; box-shadow: 0 4px 14px rgba(0,0,0,.25); opacity: 0; visibility: hidden; transition: opacity .12s; pointer-events: none; }
-  .tip:hover::after, .tip:focus::after { opacity: 1; visibility: visible; }
+  .tip:focus::after { opacity: 1; visibility: visible; } /* 터치 화면은 탭(포커스)으로만 연다: 탭 뒤 남는 :hover 때문에 안 닫히는 것 방지 */
   #pMedian ~ .tip::after { width: 220px; }
   .grid2 > label.f:nth-child(even) .tip::after { left: auto; right: 0; }
   .privacy { margin: 0; padding: 10px 16px; font-size: 13px; color: var(--ink-soft); border-top: 1px solid var(--rule); background: #f7faf9; }
@@ -131,9 +132,29 @@
   .results .resbar .sep { width: 1px; height: 22px; background: var(--rule); margin: 0 4px; }
   .results .resbar .status { flex-basis: 100%; margin: 0; min-height: 0; }
   .results .resbar .status:empty { display: none; }
+  /* 영역 조절 핸들: 모서리·변을 끌어 크기 조절 */
+  .sel i { position: absolute; width: 10px; height: 10px; margin: -6px 0 0 -6px; background: #fff; border: 2px solid var(--ink); border-radius: 50%; }
+  .sel i[data-h=nw] { left: 0; top: 0; } .sel i[data-h=ne] { left: 100%; top: 0; } .sel i[data-h=sw] { left: 0; top: 100%; } .sel i[data-h=se] { left: 100%; top: 100%; }
+  .sel i[data-h=n] { left: 50%; top: 0; } .sel i[data-h=s] { left: 50%; top: 100%; } .sel i[data-h=w] { left: 0; top: 50%; } .sel i[data-h=e] { left: 100%; top: 50%; }
+  .only-touch { display: none; }
+  @media (max-width: 600px) { .results .resbar .sep { display: none; } }
+  .notice { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 10px 16px; font-size: 14px; background: #fff8dc; border-bottom: 1px solid #ecdca0; color: var(--ink); }
+  .notice p { margin: 0; flex: 1; }
+  .notice button { appearance: none; border: 0; background: none; font-size: 20px; line-height: 1; padding: 0 4px; cursor: pointer; color: var(--ink-soft); }
+  #shareBtn { margin-top: 6px; }
+  /* 터치 기기(휴대폰·태블릿) */
+  @media (pointer: coarse) {
+    .only-touch { display: inline; }
+    .only-mouse, #folderBtn { display: none !important; }
+    .drop { min-height: 200px; }
+    .sel i { width: 18px; height: 18px; margin: -10px 0 0 -10px; }
+    .btn.small { padding: 9px 12px; font-size: 14px; }
+    .tip { width: 20px; height: 20px; font-size: 12px; }
+  }
 </style>
 </head>
 <body>
+<div class="notice" id="mobileNote" hidden><p>휴대폰에서도 쓸 수 있지만 <b>PC에서 훨씬 빠르게</b> 처리됩니다. 추출하는 동안에는 이 화면을 켜 두세요 (다른 앱으로 넘어가면 멈췄다가 돌아오면 이어집니다).</p><button id="mobileNoteClose" type="button" aria-label="안내 닫기">×</button></div>
 <header>
   <div class="mark"><h1>tabsheet</h1><p>타브 악보 영상에서 악보만 골라 PDF·JPG로 모읍니다 · 영상은 내 컴퓨터를 떠나지 않습니다</p></div>
 </header>
@@ -141,15 +162,15 @@
 <main>
   <section class="stage" aria-label="영상 미리보기">
     <div id="drop" class="drop" tabindex="0" role="button" aria-label="영상 파일 선택">
-      <div><strong>영상 파일을 여기에 놓으세요</strong>또는 클릭해서 선택 (mp4/H.264, webm 권장)</div>
+      <div><strong><span class="only-mouse">영상 파일을 여기에 놓으세요</span><span class="only-touch">탭해서 영상 선택</span></strong><span class="only-mouse">또는 클릭해서 선택 </span>(mp4/H.264, webm 권장)</div>
     </div>
-    <div id="vwrap" class="vwrap" hidden><video id="video" muted playsinline preload="auto"></video><div id="sel" class="sel" hidden></div></div>
+    <div id="vwrap" class="vwrap" hidden><video id="video" muted playsinline preload="auto"></video><div id="sel" class="sel" hidden><i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i><i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i></div></div>
     <div id="scrub" class="scrub" hidden>
       <label for="time">화면 위치</label>
       <input id="time" type="range" min="0" max="0" step="0.1" value="0">
       <output id="timeOut" for="time">0:00</output>
     </div>
-    <p id="stageHint" class="hint" hidden>악보가 보이는 시점으로 옮긴 뒤, 화면에서 악보 영역을 드래그하세요. 다시 드래그하면 영역이 바뀝니다.</p>
+    <p id="stageHint" class="hint" hidden>악보가 보이는 시점으로 옮긴 뒤, 화면에서 악보 영역을 드래그하세요. 점(모서리·변)을 끌면 크기만 바뀌고, 다른 곳을 드래그하면 새로 지정합니다.</p>
     <p class="privacy">파일은 업로드되지 않고 이 브라우저 안에서만 처리됩니다.</p>
   </section>
 
@@ -179,7 +200,7 @@
         <label class="f">너비<input id="bw" type="number" min="1" step="1"></label>
         <label class="f">높이<input id="bh" type="number" min="1" step="1"></label>
       </div>
-      <p style="margin:10px 0 0"><button class="btn ghost small" id="clearSel" type="button">영역 지우기</button></p>
+      <p style="margin:10px 0 0;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost small" id="fullWidth" type="button">가로 전체</button><button class="btn ghost small" id="clearSel" type="button">영역 지우기</button></p>
     </section>
 
     <section class="step off" id="s3">
@@ -221,6 +242,7 @@
         <button class="btn ghost small" id="mkJpg" type="button">JPG 만들기</button>
       </div>
       <p class="status" id="outStatus" role="status" aria-live="polite"></p>
+      <button class="btn small" id="shareBtn" type="button" hidden>저장·공유하기</button>
     </header>
     <div class="pieces" id="pieces"></div>
   </section>

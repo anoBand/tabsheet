@@ -44,6 +44,24 @@ with sync_playwright() as p:
     pg.click("summary"); pg.hover(".tip >> nth=2"); pg.wait_for_timeout(250)
     vis = pg.evaluate("(() => { const t = document.querySelectorAll('.tip')[2]; const s = getComputedStyle(t, '::after'); return [s.visibility, s.opacity, t.dataset.tip] })()")
     check("툴팁 호버 시 표시", vis[0] == "visible" and float(vis[1]) > 0.5 and "높음" in vis[2] and "낮음" in vis[2], str(vis))
+    # PC 화면은 기존과 같아야 함: 모바일 안내 없음, 폴더 버튼 있음, 물음표 클릭이 체크박스를 바꾸지 않음
+    check("PC: 모바일 안내 없음", pg.is_hidden("#mobileNote") and not pg.evaluate("window.__tabsheet.touch"))
+    check("PC: 폴더 선택 버튼 보임", pg.is_visible("#folderBtn"))
+    pg.click("#pMedian ~ .tip")
+    check("PC: 물음표 클릭이 체크박스를 바꾸지 않음", pg.is_checked("#pMedian"))
+    # 마우스로 오른쪽 변 끌어 너비만 조절
+    pg.evaluate("window.__tabsheet.setBBox(100, 600, 1000, 300)")
+    pg.evaluate("document.getElementById('vwrap').scrollIntoView({block:'center'})")
+    r = pg.eval_on_selector("#video", "v => { const r = v.getBoundingClientRect(); return [r.left, r.top, r.width, r.height, v.videoWidth] }"); k = r[2] / r[4]
+    ex, ey = r[0] + 1100 * k + 3, r[1] + 750 * k
+    pg.mouse.move(ex, ey)
+    check("PC: 변 위에서 커서 모양 바뀜", pg.eval_on_selector("#vwrap", "w => w.style.cursor") == "ew-resize")
+    pg.mouse.down(); pg.mouse.move(ex + 300 * k, ey + 50, steps=5); pg.mouse.up()
+    bb = pg.evaluate("window.__tabsheet.st.bbox")
+    check("PC: 오른쪽 변 끌기 (너비만 변함)", bb["x"] == 100 and bb["y"] == 600 and bb["h"] == 300 and abs(bb["w"] - 1300) < 10, str(bb))
+    with pg.expect_download() as dl:
+        pg.click("#mkPdf")
+    check("PC: PDF는 내려받기", dl.value.suggested_filename.endswith(".pdf"), dl.value.suggested_filename)
     if len(sys.argv) > 3: pg.screenshot(path=sys.argv[3])
     check("JS 오류 없음", not errs, str(errs))
     if len(sys.argv) > 2: pg.screenshot(path=sys.argv[2], full_page=True)
