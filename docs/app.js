@@ -13,6 +13,24 @@ const fmtTime = (s) => { s = Math.round(s * 10) / 10; const m = Math.floor(s / 6
 const setStatus = (el, msg, err = false) => { el.textContent = msg; el.classList.toggle('error', err); };
 const enable = (id, on) => $(id).classList.toggle('off', !on);
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+/** 손가락이 주 입력인 기기(휴대폰·태블릿). PC 화면 동작은 이 값이 false일 때 그대로 유지된다. */
+const touch = matchMedia('(pointer: coarse)').matches;
+const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* 저장 불가 환경 */ } } };
+
+// ---------------------------------------------------------------- 모바일 안내
+if (touch && store.get('tabsheet.mobileNote') !== 'off') $('mobileNote').hidden = false;
+$('mobileNoteClose').onclick = () => { $('mobileNote').hidden = true; store.set('tabsheet.mobileNote', 'off'); };
+
+// 물음표 설명: 탭으로 열고 다시 탭하면 닫힘. label 안에 있어서 그냥 두면 탭이 체크박스를 바꾸거나 입력칸으로 포커스를 옮긴다.
+document.querySelectorAll('.tip').forEach((tip) => {
+  let wasOpen = false;
+  tip.addEventListener('pointerdown', () => { wasOpen = document.activeElement === tip; });
+  tip.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (wasOpen) tip.blur(); else tip.focus();
+  });
+});
 
 // ---------------------------------------------------------------- 1. 영상 열기
 function openFile(f) {
@@ -84,17 +102,42 @@ function setBBox(x, y, w, h) {
 }
 function clearBBox() { st.bbox = null; drawSel(); syncInputs(); updateRunState(); }
 
-let drag = null;
+let drag = null;   // 새로 그리기: { mode:'new', x0, y0 } / 크기 조절: { mode:'edge', h, box }
 const wrap = $('vwrap');
 const toVideo = (e) => {
   const r = video.getBoundingClientRect(), k = video.videoWidth / r.width;
   return [clamp((e.clientX - r.left) * k, 0, video.videoWidth), clamp((e.clientY - r.top) * k, 0, video.videoHeight)];
 };
-wrap.addEventListener('pointerdown', (e) => { if (st.busy) return; drag = toVideo(e); wrap.setPointerCapture(e.pointerId); });
-wrap.addEventListener('pointermove', (e) => {
-  if (!drag) return;
+/** 포인터가 선택 상자의 어느 모서리·변 위에 있는지 ('nw','n',... 또는 ''). 손가락은 판정 범위를 넓게 잡는다. */
+function edgeAt(e) {
+  if (!st.bbox) return '';
+  const r = video.getBoundingClientRect(), k = r.width / video.videoWidth, b = st.bbox;
+  const px = e.clientX - r.left, py = e.clientY - r.top, tol = e.pointerType === 'mouse' ? 8 : 22;
+  const L = b.x * k, T = b.y * k, R = (b.x + b.w) * k, B = (b.y + b.h) * k;
+  if (px < L - tol || px > R + tol || py < T - tol || py > B + tol) return '';
+  const v = Math.abs(py - T) <= tol ? 'n' : Math.abs(py - B) <= tol ? 's' : '';
+  const h = Math.abs(px - L) <= tol ? 'w' : Math.abs(px - R) <= tol ? 'e' : '';
+  return v + h;
+}
+const CURSOR = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' };
+wrap.addEventListener('pointerdown', (e) => {
+  if (st.busy || !video.videoWidth) return;
+  const h = edgeAt(e);
   const [x, y] = toVideo(e);
-  setBBox(Math.min(x, drag[0]), Math.min(y, drag[1]), Math.abs(x - drag[0]), Math.abs(y - drag[1]));
+  drag = h ? { mode: 'edge', h, box: { ...st.bbox } } : { mode: 'new', x0: x, y0: y };
+  wrap.setPointerCapture(e.pointerId);
+});
+wrap.addEventListener('pointermove', (e) => {
+  if (!drag) { if (e.pointerType === 'mouse' && !st.busy) wrap.style.cursor = CURSOR[edgeAt(e)] || ''; return; }
+  const [x, y] = toVideo(e);
+  if (drag.mode === 'new') { setBBox(Math.min(x, drag.x0), Math.min(y, drag.y0), Math.abs(x - drag.x0), Math.abs(y - drag.y0)); return; }
+  const o = drag.box, h = drag.h;
+  let l = o.x, t = o.y, r = o.x + o.w, b = o.y + o.h;
+  if (h.includes('w')) l = Math.min(x, r - 8);
+  if (h.includes('e')) r = Math.max(x, l + 8);
+  if (h.includes('n')) t = Math.min(y, b - 8);
+  if (h.includes('s')) b = Math.max(y, t + 8);
+  setBBox(l, t, r - l, b - t);
 });
 const endDrag = () => {
   if (!drag) return;
@@ -110,22 +153,53 @@ wrap.addEventListener('pointercancel', endDrag);
   setBBox(...v);
 }));
 $('clearSel').onclick = () => { if (!st.busy) clearBBox(); };
+$('fullWidth').onclick = () => {
+  if (st.busy || !video.videoWidth) return;
+  const b = st.bbox || { y: Math.round(video.videoHeight * 0.55), h: Math.round(video.videoHeight * 0.4) };
+  setBBox(0, b.y, video.videoWidth, b.h);
+};
 window.addEventListener('resize', drawSel);
 
 // ---------------------------------------------------------------- 3. 프레임 샘플링 + 추출
+/** 진행 중인 이동. 휴대폰에서 다른 앱으로 넘어갔다 오면 이동이 끝나지 않은 채 멈춰 있을 수 있어 다시 요청한다. */
+let curSeek = null;
 /** t초로 이동해 현재 프레임이 준비될 때까지 기다린다. */
 function seekTo(t) {
   return new Promise((resolve, reject) => {
-    const to = setTimeout(() => reject(new Error(`${fmtTime(t)} 위치로 이동하지 못했습니다`)), 15000);
-    const done = () => { clearTimeout(to); resolve(); };
+    let tries = 0, to = 0;
+    const arm = () => { clearTimeout(to); to = setTimeout(onTimeout, 15000); };
+    const finish = () => { clearTimeout(to); video.removeEventListener('seeked', onSeeked); curSeek = null; };
+    const done = () => { finish(); resolve(); };
+    const onTimeout = () => {
+      if (document.hidden) return arm();                 // 화면 밖에서는 기다리기만 한다 (돌아오면 다시 요청)
+      if (++tries > 2) { finish(); reject(new Error(`${fmtTime(t)} 위치로 이동하지 못했습니다`)); return; }
+      kick();
+    };
     // 'seeked' 시점에 이미 현재 프레임이 준비되어 있으므로 바로 그린다 (프레임 콜백을 기다리면 샘플당 약 0.2초를 낭비했고, 결과는 같았다)
-    video.addEventListener('seeked', () => {
+    const onSeeked = () => {
       if (video.readyState >= 2) return done();
       video.addEventListener('loadeddata', done, { once: true });
-    }, { once: true });
-    video.currentTime = t;
+    };
+    const kick = () => { arm(); video.currentTime = t; };
+    video.addEventListener('seeked', onSeeked);
+    curSeek = { kick };
+    kick();
   });
 }
+
+// 추출 중 화면 꺼짐 방지 (지원 브라우저만; 화면을 벗어나면 자동으로 풀리므로 돌아올 때 다시 요청)
+let wakeLock = null;
+async function keepAwake(on) {
+  try {
+    if (on && 'wakeLock' in navigator && !document.hidden) { if (!wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } }
+    else if (!on && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
+  } catch { wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !st.busy) return;
+  keepAwake(true);
+  if (curSeek) curSeek.kick();  // 멈춰 있던 이동을 다시 요청
+});
 
 function paramsFromForm() {
   const n = (id, d) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; };
@@ -155,6 +229,8 @@ async function run() {
   try {
     const n = Math.max(1, Math.floor((end - start - 0.05) / params.interval) + 1);
     let pending = null, lastUi = 0;
+    const recent = [];  // 최근 샘플 시각: 남은 시간을 최근 속도로 계산 (앱 전환으로 멈췄던 시간이 계속 반영되지 않게)
+    keepAwake(true);
     for (let i = 0; i < n; i++) {
       if (st.cancel) throw new Error('중단했습니다');
       const t = start + i * params.interval;
@@ -165,10 +241,13 @@ async function run() {
       if (i + 1 < n) { pending = seekTo(start + (i + 1) * params.interval); pending.catch(() => {}); } // 다음 프레임 디코딩을 먼저 시작해 아래 계산과 겹침
       ex.push(t, data, w, h);
       const now = performance.now();
+      recent.push(now); if (recent.length > 40) recent.shift();
+      if (recent.length > 1 && now - recent[recent.length - 2] > 5000) recent.splice(0, recent.length - 1); // 긴 멈춤 이후엔 새로 잰다
       if (now - lastUi > 250 || i + 1 === n) {  // 화면 갱신은 0.25초에 한 번만
         lastUi = now;
         $('bar').style.width = `${(i + 1) / n * 90}%`;
-        setStatus($('runStatus'), `프레임 읽는 중 ${i + 1}/${n} · ${fmtTime(t)} · 남은 시간 약 ${Math.round((now - t0) / 1000 / (i + 1) * (n - i - 1))}초`);
+        const per = recent.length > 1 ? (recent[recent.length - 1] - recent[0]) / (recent.length - 1) : (now - t0) / (i + 1);
+        setStatus($('runStatus'), `프레임 읽는 중 ${i + 1}/${n} · ${fmtTime(t)} · 남은 시간 약 ${Math.round(per / 1000 * (n - i - 1))}초`);
       }
     }
     setStatus($('runStatus'), '조각 정리하는 중…');
@@ -184,6 +263,7 @@ async function run() {
     setStatus($('runStatus'), String(e.message || e), true);
   } finally {
     st.busy = false; $('cancel').hidden = true; $('bar').style.width = '0';
+    keepAwake(false);
     updateRunState();
     video.currentTime = +$('time').value;
   }
@@ -253,18 +333,35 @@ function download(bytes, name, type) {
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
+/** 휴대폰에서는 공유 시트(파일에 저장·사진에 저장·다른 앱으로 보내기)로 넘긴다. 성공하면 true. */
+async function share(files) {
+  try { await navigator.share({ files, title: st.name }); setStatus($('outStatus'), `${files.length}개 파일을 공유 시트로 넘겼습니다.`); }
+  catch (e) {
+    if (e.name === 'AbortError') { setStatus($('outStatus'), '저장을 취소했습니다. 다시 하려면 아래 버튼을 누르세요.'); $('shareBtn').hidden = false; return; }
+    if (e.name === 'NotAllowedError') { setStatus($('outStatus'), '만들었습니다. 아래 버튼을 눌러 저장하세요.'); $('shareBtn').hidden = false; return; } // 만드는 데 시간이 걸려 탭 권한이 만료된 경우
+    throw e;
+  }
+}
 async function build(fmt) {
   const picked = st.shown.filter((s) => s.on);
   if (!picked.length) { setStatus($('outStatus'), '선택된 조각이 없습니다.', true); return; }
+  $('shareBtn').hidden = true;
   setStatus($('outStatus'), '만드는 중…');
   const pages = await composePages(picked.map((s) => s.canvas));
-  if (fmt === 'pdf') download(buildPdf(pages), `${st.name}.pdf`, 'application/pdf');
-  else pages.forEach((p, i) => setTimeout(() => download(p.jpeg, `${st.name}_p${String(i + 1).padStart(2, '0')}.jpg`, 'image/jpeg'), i * 300));
-  setStatus($('outStatus'), `${fmt.toUpperCase()} ${pages.length}페이지를 내려받았습니다.`);
   st.lastPages = pages;
+  const files = fmt === 'pdf'
+    ? [new File([buildPdf(pages)], `${st.name}.pdf`, { type: 'application/pdf' })]
+    : pages.map((p, i) => new File([p.jpeg], `${st.name}_p${String(i + 1).padStart(2, '0')}.jpg`, { type: 'image/jpeg' }));
+  if (touch && navigator.canShare?.({ files })) {
+    st.shareFiles = files;
+    try { await share(files); return; } catch { /* 공유 실패 시 아래 내려받기로 */ }
+  }
+  files.forEach((f, i) => setTimeout(() => download(f, f.name, f.type), i * 300));
+  setStatus($('outStatus'), `${fmt.toUpperCase()} ${pages.length}페이지를 내려받았습니다.`);
 }
+$('shareBtn').onclick = () => { $('shareBtn').hidden = true; if (st.shareFiles) share(st.shareFiles).catch((e) => setStatus($('outStatus'), `저장하지 못했습니다: ${e.message || e}`, true)); };
 $('mkPdf').onclick = () => build('pdf');
 $('mkJpg').onclick = () => build('jpg');
 
 // 자동 테스트용 훅 (화면 동작에는 영향 없음)
-window.__tabsheet = { st, setBBox, run, build };
+window.__tabsheet = { st, setBBox, run, build, touch };
