@@ -17,6 +17,12 @@ with sync_playwright() as p:
     check("영상 열기 전 추출 비활성", pg.is_disabled("#run"))
     pg.set_input_files("#file", sys.argv[1]); pg.wait_for_function("document.getElementById('video').videoWidth > 0", timeout=20000)
     pg.wait_for_function("document.getElementById('video').readyState >= 2")
+    pg.wait_for_function("window.__tabsheet.st.bbox", timeout=5000)
+    ab = pg.evaluate("window.__tabsheet.st.bbox")
+    check("악보 영역 자동 제안", ab["x"] == 0 and ab["w"] == 1920 and ab["y"] <= 640 and ab["y"] + ab["h"] >= 1020 and "자동" in pg.inner_text("#selStatus"), str(ab))
+    pg.click("#clearSel")
+    pg.evaluate("document.getElementById('video').currentTime = 20"); pg.wait_for_timeout(600)
+    check("직접 지운 뒤에는 다시 제안하지 않음", pg.evaluate("window.__tabsheet.st.bbox") is None and pg.inner_text("#selStatus") == "")
     check("영역 없으면 안내", "먼저" in pg.inner_text("#runStatus"), pg.inner_text("#runStatus"))
     r = pg.eval_on_selector("#video", "v => { const r = v.getBoundingClientRect(); return [r.left, r.top, r.width, r.height, v.videoWidth] }")
     k = r[2] / r[4]

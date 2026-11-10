@@ -141,14 +141,11 @@ class Run {
     this.stride = 1;
     this.best = rgba;
     this.bestSharp = -1;
-    this.firstRaw = rgba; // 구간의 처음/마지막 원본 프레임 (스크롤 영상에서 커서 위치로 이어 붙일 때 사용)
-    this.lastRaw = rgba;
     this.add(t, rgba, prep.sharp);
   }
 
   add(t, rgba, sharp) {
     this.tEnd = t;
-    this.lastRaw = rgba;
     if (sharp > this.bestSharp) { this.best = rgba; this.bestSharp = sharp; } // 폴백: 가장 선명한 한 장
     if (this.n % this.stride === 0) {
       this.crops.push(rgba);
@@ -224,11 +221,15 @@ export class Extractor {
     this.sw = prep.sw; this.sh = prep.sh;
   }
 
+  /** 구간이 끝나면 바로 대표 이미지를 만들고 원본 프레임들을 버린다.
+   *  (끝까지 들고 있으면 구간 수 × 최대 17장이 쌓여 긴 영상에서 수백 MB가 되고, 휴대폰에서는 탭이 죽는다) */
   _close(r) {
-    if (r && r.n >= this.p.minRun) this.candidates.push(r);
+    if (!r || r.n < this.p.minRun) return;
+    const { w, h } = this.size;
+    this.candidates.push({ tStart: r.tStart, tEnd: r.tEnd, rgba: r.image(this.p.median, w, h) });
   }
 
-  /** 마무리: 병합 + 페이드 잔상 판정. 중앙값 계산이 무거우니 구간마다 UI에 숨 돌릴 틈을 준다.
+  /** 마무리: 병합 + 페이드 잔상 판정. 대표 이미지는 구간이 끝날 때 이미 만들어져 있다.
    *  @returns {Promise<{index:number,tStart:number,tEnd:number,image:{rgba:Uint8ClampedArray,w:number,h:number},faded:boolean}[]>} */
   async finish({ keepFaded = false, onProgress } = {}) {
     const p = this.p;
@@ -240,14 +241,13 @@ export class Extractor {
     const merged = [];
     let done = 0;
     for (const r of this.candidates) {
-      const rgba = r.image(p.median, w, h);
+      const rgba = r.rgba;
       const small = prepare(rgba, w, h, p.smallWidth).small;
       const last = merged[merged.length - 1];
       if (last && changeScore(last.small, small, this.sw, this.sh, p.pixThr) <= p.dedupeThr) {
         last.tEnd = r.tEnd;
-        last.lastRaw = r.lastRaw;
       } else {
-        merged.push({ tStart: r.tStart, tEnd: r.tEnd, rgba, small, firstRaw: r.firstRaw, lastRaw: r.lastRaw });
+        merged.push({ tStart: r.tStart, tEnd: r.tEnd, rgba, small });
       }
       if (onProgress) onProgress(++done / this.candidates.length);
       await tick();
@@ -261,7 +261,7 @@ export class Extractor {
         faded = blendRatio(merged[i - 1].small, m.small, merged[i + 1].small) < p.fadeRatio;
       }
       if (faded && !keepFaded) return;
-      out.push({ index: out.length + 1, tStart: m.tStart, tEnd: m.tEnd, image: { rgba: m.rgba, w, h }, faded, edges: { first: m.firstRaw, last: m.lastRaw } });
+      out.push({ index: out.length + 1, tStart: m.tStart, tEnd: m.tEnd, image: { rgba: m.rgba, w, h }, faded });
     });
     return out;
   }
