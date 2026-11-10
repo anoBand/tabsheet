@@ -4,6 +4,7 @@ import { composePages, buildPdf } from './pdf.js';
 import { initMedia } from './media.js';
 import { tidy, looksLikeScroll } from './stitch.js';
 import { parseTime } from './timefmt.js';
+import { detectScore } from './detect.js';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
@@ -41,6 +42,7 @@ function openFile(f) {
   st.segs = [];
   $('results').hidden = true;
   clearBBox();
+  st.autoOff = false; setStatus($('selStatus'), '');
   enable('s2', false); enable('s3', false);
   setStatus($('openStatus'), '영상을 읽는 중…');
   video.src = st.url;
@@ -61,7 +63,23 @@ video.addEventListener('loadedmetadata', () => {
   enable('s2', true); enable('s3', true); updateRunState();
 });
 $('time').addEventListener('input', () => { if (!st.busy) video.currentTime = +$('time').value; });
-video.addEventListener('seeked', () => { if (!st.busy) $('timeOut').textContent = fmtTime(video.currentTime); });
+video.addEventListener('seeked', () => { if (!st.busy) { $('timeOut').textContent = fmtTime(video.currentTime); suggestBBox(); } });
+
+/** 아직 영역을 정하지 않았으면 지금 화면에서 악보 영역을 찾아 제안한다. 사용자가 한 번이라도 직접 정하거나 지우면 더 제안하지 않는다. */
+function suggestBBox() {
+  if (st.bbox || st.autoOff || st.busy || video.readyState < 2 || !video.videoWidth) return;
+  try {
+    const W = video.videoWidth, H = video.videoHeight;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(video, 0, 0);
+    const b = detectScore(g.getImageData(0, 0, W, H).data, W, H);
+    if (!b) return;
+    setBBox(b.x, b.y, b.w, b.h);
+    setStatus($('selStatus'), '악보로 보이는 영역을 자동으로 잡았습니다. 맞지 않으면 고쳐 주세요.');
+  } catch { /* 제안은 실패해도 무시 */ }
+}
+const manualSel = () => { st.autoOff = true; setStatus($('selStatus'), ''); };
 
 $('pick').onclick = () => $('file').click();
 $('drop').onclick = () => $('file').click();
@@ -122,6 +140,7 @@ function edgeAt(e) {
 const CURSOR = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' };
 wrap.addEventListener('pointerdown', (e) => {
   if (st.busy || !video.videoWidth) return;
+  manualSel();
   const h = edgeAt(e);
   const [x, y] = toVideo(e);
   drag = h ? { mode: 'edge', h, box: { ...st.bbox } } : { mode: 'new', x0: x, y0: y };
@@ -150,9 +169,9 @@ wrap.addEventListener('pointercancel', endDrag);
   if (!video.videoWidth || st.busy) return;
   const v = ['bx', 'by', 'bw', 'bh'].map((i) => parseInt($(i).value, 10));
   if (v.some(Number.isNaN) || v[2] < 1 || v[3] < 1) return;
-  setBBox(...v);
+  manualSel(); setBBox(...v);
 }));
-$('clearSel').onclick = () => { if (!st.busy) clearBBox(); };
+$('clearSel').onclick = () => { if (!st.busy) { manualSel(); clearBBox(); } };
 $('fullWidth').onclick = () => {
   if (st.busy || !video.videoWidth) return;
   const b = st.bbox || { y: Math.round(video.videoHeight * 0.55), h: Math.round(video.videoHeight * 0.4) };
@@ -363,5 +382,8 @@ $('shareBtn').onclick = () => { $('shareBtn').hidden = true; if (st.shareFiles) 
 $('mkPdf').onclick = () => build('pdf');
 $('mkJpg').onclick = () => build('jpg');
 
+// 홈 화면 설치·오프라인 사용 (https 또는 localhost에서만 동작, 실패해도 앱은 그대로 동작)
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
 // 자동 테스트용 훅 (화면 동작에는 영향 없음)
-window.__tabsheet = { st, setBBox, run, build, touch };
+window.__tabsheet = { st, setBBox, run, build, touch, clearBBox: () => { manualSel(); clearBBox(); } };

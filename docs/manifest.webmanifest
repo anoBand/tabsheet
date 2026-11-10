@@ -1,0 +1,15 @@
+{
+  "name": "tabsheet — 타브 영상에서 악보 뽑기",
+  "short_name": "tabsheet",
+  "description": "타브 악보 영상에서 악보만 골라 PDF·JPG로 모읍니다. 영상은 기기를 떠나지 않습니다.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#eef1f5",
+  "theme_color": "#18213b",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

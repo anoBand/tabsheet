@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tabsheet</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#18213b">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
   :root {
     --ink: #18213b;
@@ -201,6 +205,7 @@
         <label class="f">높이<input id="bh" type="number" min="1" step="1"></label>
       </div>
       <p style="margin:10px 0 0;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost small" id="fullWidth" type="button">가로 전체</button><button class="btn ghost small" id="clearSel" type="button">영역 지우기</button></p>
+      <p class="status" id="selStatus" role="status"></p>
     </section>
 
     <section class="step off" id="s3">
