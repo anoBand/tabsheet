@@ -11,9 +11,11 @@ def check(n, c, e=""):
     global ok; ok &= bool(c); print("OK  " if c else "FAIL", n, e)
 with sync_playwright() as p:
     b = p.chromium.launch(executable_path="/usr/bin/google-chrome", args=["--no-sandbox"])
-    pg = b.new_page(viewport={"width": 1280, "height": 1000}); errs = []
+    pg = b.new_page(viewport={"width": 1280, "height": 1000}); errs = []; reqs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
-    pg.goto(f"http://127.0.0.1:{srv.server_address[1]}/index.html")
+    pg.on("request", lambda r: reqs.append(r.url))
+    pg.goto(f"http://127.0.0.1:{srv.server_address[1]}/index.html"); pg.wait_for_load_state("networkidle")
+    check("열 때 videos/ 요청 없음 (예전 자동 목록)", not any("/videos" in u for u in reqs), str([u for u in reqs if "/videos" in u]))
     check("영상 열기 전 추출 비활성", pg.is_disabled("#run"))
     pg.set_input_files("#file", sys.argv[1]); pg.wait_for_function("document.getElementById('video').videoWidth > 0", timeout=20000)
     pg.wait_for_function("document.getElementById('video').readyState >= 2")
@@ -50,9 +52,8 @@ with sync_playwright() as p:
     pg.click("summary"); pg.hover(".tip >> nth=2"); pg.wait_for_timeout(250)
     vis = pg.evaluate("(() => { const t = document.querySelectorAll('.tip')[2]; const s = getComputedStyle(t, '::after'); return [s.visibility, s.opacity, t.dataset.tip] })()")
     check("툴팁 호버 시 표시", vis[0] == "visible" and float(vis[1]) > 0.5 and "높음" in vis[2] and "낮음" in vis[2], str(vis))
-    # PC 화면은 기존과 같아야 함: 모바일 안내 없음, 폴더 버튼 있음, 물음표 클릭이 체크박스를 바꾸지 않음
+    # PC 화면은 기존과 같아야 함: 모바일 안내 없음, 물음표 클릭이 체크박스를 바꾸지 않음
     check("PC: 모바일 안내 없음", pg.is_hidden("#mobileNote") and not pg.evaluate("window.__tabsheet.touch"))
-    check("PC: 폴더 선택 버튼 보임", pg.is_visible("#folderBtn"))
     pg.click("#pMedian ~ .tip")
     check("PC: 물음표 클릭이 체크박스를 바꾸지 않음", pg.is_checked("#pMedian"))
     # 마우스로 오른쪽 변 끌어 너비만 조절
