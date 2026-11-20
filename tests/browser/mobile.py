@@ -39,7 +39,6 @@ with sync_playwright() as p:
     pg.goto(URL)
     check("터치 기기로 인식", pg.evaluate("window.__tabsheet.touch"))
     check("모바일 안내 배너 표시", pg.is_visible("#mobileNote") and "PC" in pg.inner_text("#mobileNote"))
-    check("폴더 선택 버튼 숨김", pg.is_hidden("#folderBtn"))
     check("파일 놓기 문구 대신 탭 안내", pg.is_visible("text=탭해서 영상 선택") and not pg.is_visible("text=영상 파일을 여기에 놓으세요"))
     check("가로 스크롤 없음", pg.evaluate("document.documentElement.scrollWidth <= innerWidth"))
     if shots: pg.screenshot(path=str(shots / "m_home.png"))

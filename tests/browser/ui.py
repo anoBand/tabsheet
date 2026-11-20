@@ -50,9 +50,8 @@ with sync_playwright() as p:
     pg.click("summary"); pg.hover(".tip >> nth=2"); pg.wait_for_timeout(250)
     vis = pg.evaluate("(() => { const t = document.querySelectorAll('.tip')[2]; const s = getComputedStyle(t, '::after'); return [s.visibility, s.opacity, t.dataset.tip] })()")
     check("툴팁 호버 시 표시", vis[0] == "visible" and float(vis[1]) > 0.5 and "높음" in vis[2] and "낮음" in vis[2], str(vis))
-    # PC 화면은 기존과 같아야 함: 모바일 안내 없음, 폴더 버튼 있음, 물음표 클릭이 체크박스를 바꾸지 않음
+    # PC 화면은 기존과 같아야 함: 모바일 안내 없음, 물음표 클릭이 체크박스를 바꾸지 않음
     check("PC: 모바일 안내 없음", pg.is_hidden("#mobileNote") and not pg.evaluate("window.__tabsheet.touch"))
-    check("PC: 폴더 선택 버튼 보임", pg.is_visible("#folderBtn"))
     pg.click("#pMedian ~ .tip")
     check("PC: 물음표 클릭이 체크박스를 바꾸지 않음", pg.is_checked("#pMedian"))
     # 마우스로 오른쪽 변 끌어 너비만 조절

@@ -149,7 +149,7 @@
   /* 터치 기기(휴대폰·태블릿) */
   @media (pointer: coarse) {
     .only-touch { display: inline; }
-    .only-mouse, #folderBtn { display: none !important; }
+    .only-mouse { display: none !important; }
     .drop { min-height: 200px; }
     .sel i { width: 18px; height: 18px; margin: -10px 0 0 -10px; }
     .btn.small { padding: 9px 12px; font-size: 14px; }
@@ -183,13 +183,11 @@
       <h2><span class="n">1</span>영상 열기</h2>
       <div class="line" style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn ghost" id="pick" type="button">영상 파일 선택</button>
-        <button class="btn ghost" id="folderBtn" type="button">내 컴퓨터 폴더 선택</button>
       </div>
       <input id="file" type="file" accept="video/*,.mkv" hidden>
-      <input id="dirInput" type="file" webkitdirectory hidden>
       <div class="media" id="mediaBox" hidden>
-        <p class="muted" style="margin:10px 0 8px">또는 목록에서 열기 (업로드 없이)</p>
-        <div class="line"><select id="mediaSel" aria-label="폴더의 영상"></select><button class="btn small" id="mediaOpen" type="button">열기</button><button class="btn ghost small" id="serverBtn" type="button" title="서버의 videos/ 목록 다시 읽기">새로고침</button></div>
+        <p class="muted" style="margin:10px 0 8px">서버의 videos/ 에서 열기 (개발용 주소에서만)</p>
+        <div class="line"><select id="mediaSel" aria-label="서버의 영상"></select><button class="btn small" id="mediaOpen" type="button">열기</button><button class="btn ghost small" id="serverBtn" type="button" title="서버의 videos/ 목록 다시 읽기">새로고침</button></div>
       </div>
       <p class="meta" id="info">아직 열린 영상이 없습니다.</p>
       <p class="status" id="openStatus" role="status"></p>
