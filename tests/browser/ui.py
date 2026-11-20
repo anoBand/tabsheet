@@ -11,11 +11,9 @@ def check(n, c, e=""):
     global ok; ok &= bool(c); print("OK  " if c else "FAIL", n, e)
 with sync_playwright() as p:
     b = p.chromium.launch(executable_path="/usr/bin/google-chrome", args=["--no-sandbox"])
-    pg = b.new_page(viewport={"width": 1280, "height": 1000}); errs = []; reqs = []
+    pg = b.new_page(viewport={"width": 1280, "height": 1000}); errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
-    pg.on("request", lambda r: reqs.append(r.url))
-    pg.goto(f"http://127.0.0.1:{srv.server_address[1]}/index.html"); pg.wait_for_load_state("networkidle")
-    check("열 때 videos/ 요청 없음 (예전 자동 목록)", not any("/videos" in u for u in reqs), str([u for u in reqs if "/videos" in u]))
+    pg.goto(f"http://127.0.0.1:{srv.server_address[1]}/index.html")
     check("영상 열기 전 추출 비활성", pg.is_disabled("#run"))
     pg.set_input_files("#file", sys.argv[1]); pg.wait_for_function("document.getElementById('video').videoWidth > 0", timeout=20000)
     pg.wait_for_function("document.getElementById('video').readyState >= 2")

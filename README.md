@@ -12,11 +12,11 @@
 python -m http.server 8000     # 프로젝트 루트에서 실행 → http://127.0.0.1:8000/docs/
 ```
 
-`docs/` 폴더만 정적 호스팅(GitHub Pages 등)해도 됩니다.
+`docs/` 폴더만 정적 호스팅(GitHub Pages 등)해도 됩니다. 프로젝트 루트의 `videos/`(git 제외)에 넣은 영상은 로컬에서 디버깅할 때 목록으로 열 수 있습니다.
 
 ## 사용법
 
-1. **영상 열기**: 파일을 끌어다 놓거나 선택.
+1. **영상 열기**: 파일을 끌어다 놓거나 선택. 개발용 주소(localhost, Codespaces, dev)에서는 서버의 `videos/` 폴더에 영상이 있으면 자동으로 목록이 나타납니다(디버깅용, 실제 사이트에서는 요청하지 않음).
 2. **악보 영역**: 영상을 열면 악보로 보이는 영역(밝은 띠 + 악보선)을 자동으로 잡아 줍니다. 못 찾았거나 맞지 않으면 악보가 보이는 시점으로 슬라이더를 옮기고, 화면에서 드래그하거나 x/y/너비/높이를 직접 입력해 미세 조정. 선택 상자의 점(모서리·변)을 끌면 크기만 바뀌고, **가로 전체** 버튼은 높이는 두고 영상 폭 전체로 넓힙니다.
 3. **악보 추출**: 필요하면 시작/끝 시간(`90`, `1:30`, `1:02:03` 형식)과 세부 설정(항목 옆 `?`에 마우스를 올리면 값이 높을 때/낮을 때의 차이가 보입니다)을 바꾼 뒤 추출 → 조각 미리보기에서 필요 없는 조각 체크 해제 → PDF/JPG 만들기.
 
@@ -89,6 +89,7 @@ docs/app.js       # 화면 동작: 영상 열기, 영역 지정, 프레임 읽�
 docs/core.js      # 알고리즘 (DOM 무관, Node에서도 동작): 변화 점수, 구간 추적, 중앙값 합성, 페이드 판정
 docs/stitch.js    # 마디 정리: 겹침 찾기, 띠 만들기, 마디선 검출, 줄 나누기 (DOM 무관)
 docs/pdf.js       # A4 배치 + 외부 라이브러리 없는 PDF 작성기
+docs/media.js     # 서버 videos/ 목록 (개발용 주소에서만)
 tests/browser/    # 테스트 (아래)
 tests/tools/      # 테스트 영상 생성기 (파이썬, 개발용)
 ```
@@ -103,6 +104,7 @@ node tests/browser/pdf.test.mjs OUT.pdf a.jpg ... # PDF 작성기·배치
 python tests/browser/ui.py VIDEO [shot.png]       # 화면 동작 (Playwright + Chrome)
 python tests/browser/mobile.py VIDEO [SHOT_DIR]   # 휴대폰 화면 (Pixel 7 에뮬레이션, 터치·공유 시트)
 python tests/browser/pwa.py VIDEO                 # 설치 정보 + 서버를 끈 뒤(오프라인) 열기·추출
+python tests/browser/server_videos.py SITE_ROOT    # 서버 videos/ 목록, 실제 사이트 주소에서는 요청 없음 (docs/ 와 videos/ 가 있는 폴더)
 python tests/browser/e2e.py cases.json OUTDIR     # 실제 Chrome에서 tests/browser/expected/*.json 과 비교
 ```
 

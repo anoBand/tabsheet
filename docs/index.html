@@ -93,6 +93,9 @@
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
   .meta { color: var(--ink-soft); font-size: 14px; overflow-wrap: anywhere; margin: 8px 0 0; }
 
+  .media { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
+  .media .line { display: flex; gap: 8px; align-items: center; }
+  .media select { flex: 1; min-width: 0; }
   .bar { height: 6px; background: var(--paper); border-radius: 3px; overflow: hidden; margin-top: 10px; }
   .bar > i { display: block; height: 100%; width: 0; background: var(--seafoam); transition: width .25s; }
   .status { min-height: 1.4em; margin: 8px 0 0; font-size: 14px; color: var(--ink-soft); }
@@ -182,6 +185,10 @@
         <button class="btn ghost" id="pick" type="button">영상 파일 선택</button>
       </div>
       <input id="file" type="file" accept="video/*,.mkv" hidden>
+      <div class="media" id="mediaBox" hidden>
+        <p class="muted" style="margin:10px 0 8px">서버의 videos/ 에서 열기 (개발용 주소에서만)</p>
+        <div class="line"><select id="mediaSel" aria-label="서버의 영상"></select><button class="btn small" id="mediaOpen" type="button">열기</button><button class="btn ghost small" id="serverBtn" type="button" title="서버의 videos/ 목록 다시 읽기">새로고침</button></div>
+      </div>
       <p class="meta" id="info">아직 열린 영상이 없습니다.</p>
       <p class="status" id="openStatus" role="status"></p>
     </section>

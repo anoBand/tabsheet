@@ -1,6 +1,7 @@
 // app.js — 브라우저 전용 tabsheet. 영상은 업로드되지 않고 <video> 로 직접 디코딩한다.
 import { Extractor, DEFAULTS } from './core.js';
 import { composePages, buildPdf } from './pdf.js';
+import { initMedia } from './media.js';
 import { tidy, looksLikeScroll } from './stitch.js';
 import { parseTime } from './timefmt.js';
 import { detectScore } from './detect.js';
@@ -88,6 +89,8 @@ for (const ev of ['dragover', 'dragenter']) $('drop').addEventListener(ev, (e) =
 for (const ev of ['dragleave', 'drop']) $('drop').addEventListener(ev, () => $('drop').classList.remove('over'));
 $('drop').addEventListener('drop', (e) => { e.preventDefault(); openFile(e.dataTransfer.files[0]); });
 
+initMedia({ box: $('mediaBox'), select: $('mediaSel'), openBtn: $('mediaOpen'), serverBtn: $('serverBtn'),
+  onFile: openFile, status: (m, e) => setStatus($('openStatus'), m, e) });
 
 // ---------------------------------------------------------------- 2. 영역 지정 (드래그 + 숫자 입력)
 function drawSel() {
