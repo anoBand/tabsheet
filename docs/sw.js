@@ -10,7 +10,7 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   const name = url.pathname.slice(new URL(self.registration.scope).pathname.length);
-  // 앱 파일만 다룬다. 영상(videos/ 목록, blob)이나 다른 요청은 건드리지 않는다.
+  // 앱 파일만 다룬다. 영상(blob)이나 다른 요청은 건드리지 않는다.
   if (e.request.method !== 'GET' || url.origin !== location.origin || !SHELL.includes(name === '' ? './' : name)) return;
   e.respondWith(
     fetch(e.request).then((res) => {

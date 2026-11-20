@@ -89,7 +89,7 @@ for (const ev of ['dragover', 'dragenter']) $('drop').addEventListener(ev, (e) =
 for (const ev of ['dragleave', 'drop']) $('drop').addEventListener(ev, () => $('drop').classList.remove('over'));
 $('drop').addEventListener('drop', (e) => { e.preventDefault(); openFile(e.dataTransfer.files[0]); });
 
-initMedia({ box: $('mediaBox'), select: $('mediaSel'), openBtn: $('mediaOpen'), serverBtn: $('serverBtn'), folderBtn: $('folderBtn'),
+initMedia({ box: $('mediaBox'), select: $('mediaSel'), openBtn: $('mediaOpen'), folderBtn: $('folderBtn'),
   dirInput: $('dirInput'), onFile: openFile, status: (m, e) => setStatus($('openStatus'), m, e) });
 
 // ---------------------------------------------------------------- 2. 영역 지정 (드래그 + 숫자 입력)
