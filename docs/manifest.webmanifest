@@ -1,7 +1,7 @@
 {
-  "name": "tabsheet — 타브 영상에서 악보 뽑기",
+  "name": "tabsheet · 영상에서 악보로",
   "short_name": "tabsheet",
-  "description": "타브 악보 영상에서 악보만 골라 PDF·JPG로 모읍니다. 영상은 기기를 떠나지 않습니다.",
+  "description": "악보가 나오는 영상에서 악보만 골라 PDF·JPG로 모읍니다. 영상은 기기를 떠나지 않습니다.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
